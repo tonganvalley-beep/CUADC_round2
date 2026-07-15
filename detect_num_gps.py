@@ -3,13 +3,17 @@ import numpy as np
 import math
 from ultralytics import YOLO
 import pytesseract
-from collections import defaultdict
+from collections import defaultdict, deque
 import datetime
 import os
 import torch
 from pathlib import Path
 import socket
 from typing import List, Tuple
+import struct
+import threading
+import mmap
+import yaml
 
 # ============================
 # TX2-NX 4GB friendly settings
@@ -28,6 +32,8 @@ num_conf = 80
 scale_gps = 0.9
 folder_img = "/home/tx2/Wintter/raw_pic"
 folder_info = "/home/tx2/Wintter/info_to_ground"
+raw_path = folder_img
+info_path = folder_info
 
 # === Storage controls ===
 SAVE_CROPS = True                                 # 是否保存 320×320 裁剪图
@@ -40,6 +46,8 @@ runs_root = Path("runs/detect_num/exp")             # 会自动递增 exp、exp_
 DET_BATCH = 6       # keep small to fit 4GB
 CLS_BATCH = 12      # ditto
 IMG_CHUNK = 12      # images per chunk
+QUEUE_MAX = 12      # 线程队列保存的最大数量
+circle_wp = 9
 
 # OCR
 OCR_WHITELIST = "0123456789"
@@ -54,6 +62,11 @@ img_cols = 1920
 img_rows = 1080
 well_width = 320
 well_height = 320
+
+#共享内存
+HEADER_FMT = '=iii6d'                               #来自c++的信息格式，int... double...
+HEADER_SIZE = struct.calcsize(HEADER_FMT)           #按照STRUCT_FORMAT计算结构体大小
+TOTAL_SIZE = HEADER_SIZE + img_cols * img_rows * 3  #加上图片
 cell_width = 1.263158
 cell_height = 0.947368
 
@@ -68,6 +81,14 @@ wells = []
 num_of_cut = 0
 num_of_save = 0
 save_dir_exp: Path = None  # runs/detect_num/exp* 实际路径
+
+# ------------ 线程全局 ------------
+task_queue = deque()
+queue_lock = threading.Lock()
+running = True
+ground_test = False
+lat_target = 0.0
+lon_target = 0.0
 
 # ------------ utils ---------------
 def increment_path(path: Path, sep='_') -> Path:
@@ -198,6 +219,123 @@ def is_angle_greater_than_180_counterclockwise(p1, p2, p3):
     vector23 = np.array(p3) - np.array(p2)
     cross_z = vector12[0] * vector23[1] - vector12[1] * vector23[0]
     return 1 if cross_z > 0 else 0
+
+def load_config():
+    with open('/home/duidi/Wintter/src/test/config.yaml', 'r') as f:
+        return yaml.safe_load(f)
+
+def open_shm():
+    while True:
+        try:
+            fd = os.open("/dev/shm/my_shm", os.O_RDWR)
+            mm = mmap.mmap(fd, TOTAL_SIZE)
+            print("[INFO] shm connected")
+            return mm
+        except FileNotFoundError:
+            print("[WAIT] waiting for C++ shm...")
+            time.sleep(0.5)
+
+mm = open_shm()
+
+#原图和信息保存
+def save_raw_and_info(img, info, frame_id):
+    lon, lat, alt, pitch, yaw, roll = info
+
+    cv2.imwrite(f"{raw_path}/{frame_id}.jpg", img)
+
+    with open(f"{info_path}/{frame_id}.txt", "w") as f:
+        f.write(f"{lon} {lat} {alt} {pitch} {yaw} {roll}")
+
+#共享内存线程
+def shm_thread():
+    global running, mm, circle_wp
+
+    while running:
+        try:
+            flag = struct.unpack('i', mm[:4])[0]
+        except:
+            print("[ERROR] shm lost, reconnecting...")
+            mm = open_shm()
+            continue
+
+        if flag != 2:
+            time.sleep(0.005)
+            continue
+
+        data = struct.unpack(HEADER_FMT, mm[:HEADER_SIZE])
+        frame_id, wp = data[1], data[2]
+
+        if wp == circle_wp:
+            choose_and_send()
+            print("[INFO] mission complete")
+            running = False
+            return
+
+        lon, lat, alt, pitch, yaw, roll = data[3:]
+
+        img = np.frombuffer(mm[HEADER_SIZE:], dtype=np.uint8)\
+                .reshape((img_rows, img_cols, 3))
+
+        save_raw_and_info(
+            img,
+            (lon, lat, alt, pitch, yaw, roll),
+            frame_id
+        )
+
+        with queue_lock:
+            if len(task_queue) >= QUEUE_MAX:
+                task_queue.popleft()
+            task_queue.append((img.copy(), (lon, lat, alt, pitch, yaw, roll)))
+
+        mm[:4] = struct.pack('i', 0)
+
+#推理线程
+def infer_thread(det_model, cls_model):
+    global num_of_save, running
+
+    while running or task_queue:
+
+        batch = []
+        with queue_lock:
+            while task_queue and len(batch) < IMG_CHUNK:
+                batch.append(task_queue.popleft())
+
+        if not batch:
+            time.sleep(0.005)
+            continue
+
+        imgs, infos = zip(*batch)
+
+        det_results = det_model.predict(list(imgs),
+                                        imgsz=imgsz,
+                                        conf=well_conf,
+                                        batch=len(imgs),
+                                        device=0,
+                                        half=True,
+                                        verbose=False)
+
+        if ground_test:
+            send(lat_target, lon_target)
+            print("sent on the ground")
+            running = False
+            return
+
+        crops = []
+        metas = []
+        for i, (img, res) in enumerate(zip(imgs, det_results)):
+            c = cut(img, res)
+            if not c:
+                continue
+            for (crop_img, rect_R) in c:
+                crops.append(crop_img)
+                metas.append((i, *rect_R))
+                if len(crops) == CLS_BATCH:
+                    run_cls_batch(cls_model, crops, metas, infos)
+                    crops, metas = [], []
+        if crops:
+            run_cls_batch(cls_model, crops, metas, infos)
+
+        torch.cuda.empty_cache()
 
 def get_number(img):
     config = f'--oem {OCR_OEM} --psm {OCR_PSM} -c tessedit_char_whitelist={OCR_WHITELIST}'
@@ -429,12 +567,18 @@ def choose_and_send():
     return True
 
 def main():
-    start = datetime.datetime.now()
+    global ground_test, lat_target, lon_target
+
+    config = load_config()
+    ground_test = config['ground_test']
+    lat_target = config['throw_target']['lat']
+    lon_target = config['throw_target']['lon']
+
     _init_save_dirs()
 
     det = YOLO("weights/wellcut_1002.pt")
-    det.fuse() #把模型的 Conv+BN 融合，推理更快
-    try: det.model.half() #用 FP16 半精度运行，节省显存、提高速度，如果设备不支持就跳过
+    det.fuse()
+    try: det.model.half()
     except: pass
 
     cls = YOLO("weights/round2_0914.pt")
@@ -442,25 +586,16 @@ def main():
     try: cls.model.half()
     except: pass
 
-    # streaming over chunks to bound RAM
-    chunk = []
-    for pair in iter_image_paths(folder_img, folder_info):
-        chunk.append(pair)
-        #每次积累 IMG_CHUNK 对图像后，就调用 process_chunk() 处理这一批
-        if len(chunk) == IMG_CHUNK:
-            process_chunk(det, cls, chunk)
-            #清空chunk,并释放内存
-            chunk = []
-            torch.cuda.empty_cache()
-    #收尾处理
-    if chunk:
-        process_chunk(det, cls, chunk)
-        torch.cuda.empty_cache()
+    t1 = threading.Thread(target=shm_thread)
+    t2 = threading.Thread(target=infer_thread, args=(det, cls))
 
-    elapsed = (datetime.datetime.now() - start).total_seconds()
-    print(f"[Total] streaming pipeline took {elapsed:.3f}s; wells={len(wells)}")
-    ok = choose_and_send()
-    print(f"send status: {ok}")
+    t1.start()
+    t2.start()
+
+    t1.join()
+    t2.join()
+
+    choose_and_send()
 
 if __name__ == "__main__":
     main()
