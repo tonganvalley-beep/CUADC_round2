@@ -117,10 +117,10 @@ def dis(lon1, lat1, lon2, lat2):
     return math.sqrt(((lon1 - lon2) * m_per_deg_lon) ** 2 + ((lat1 - lat2) * m_per_deg_lat) ** 2)
 
 #坐标解算 (基于相机内参 + 畸变修正)
-def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch_deg, yaw_deg, roll_deg=0.0):
-    pitch = pitch_deg * DEG2RAD
-    yaw   = yaw_deg * DEG2RAD
-    roll  = roll_deg * DEG2RAD
+def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch_rad, yaw_rad, roll_rad=0.0):
+    pitch = pitch_rad
+    yaw   = yaw_rad
+    roll  = roll_rad
 
     # 相机内参 & 畸变
     K = np.array([
