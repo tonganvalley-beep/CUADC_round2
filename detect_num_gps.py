@@ -14,6 +14,7 @@ import struct
 import threading
 import mmap
 import yaml
+from scipy.spatial.transform import Rotation as R
 
 # ============================
 # TX2-NX 4GB friendly settings
@@ -29,7 +30,6 @@ imgsz = 320
 well_conf = 0.5
 pic_conf = 0.75
 num_conf = 80
-scale_gps = 0.9
 folder_img = "/home/tx2/Wintter/raw_pic"
 folder_info = "/home/tx2/Wintter/info_to_ground"
 raw_path = folder_img
@@ -63,12 +63,26 @@ img_rows = 1080
 well_width = 320
 well_height = 320
 
+# ---------- 坐标解算常量 ----------
+DEG2RAD = math.pi / 180.0
+RAD2DEG = 180.0 / math.pi
+EARTH_RADIUS = 6378137.0  # WGS84 长半轴 (m)
+
+# ---------- 相机内参 (需标定!) ----------
+fx = 800.0     # TODO: 替换为实际标定值
+fy = 800.0
+cx = 960.0     # 主点 x (img_cols/2)
+cy = 540.0     # 主点 y (img_rows/2)
+k1 = 0.0       # 径向畸变
+k2 = 0.0
+k3 = 0.0
+p1 = 0.0       # 切向畸变
+p2 = 0.0
+
 #共享内存
 HEADER_FMT = '=iii6d'                               #来自c++的信息格式，int... double...
 HEADER_SIZE = struct.calcsize(HEADER_FMT)           #按照STRUCT_FORMAT计算结构体大小
 TOTAL_SIZE = HEADER_SIZE + img_cols * img_rows * 3  #加上图片
-cell_width = 1.263158
-cell_height = 0.947368
 
 SEND_PORT = 10000
 send_server_addr = ('127.0.0.1', SEND_PORT)
@@ -139,46 +153,66 @@ def read_info_from_png(info_path: str):
     except:
         return None
 
-def get_well_gps(lon, lat, alt, pitch, yaw, x_pic, y_pic):
-    pitch_rad = math.radians(pitch)
-    yaw_rad = math.radians(yaw)
-    roll_rad = math.radians(5)
+#坐标解算 (基于相机内参 + 畸变修正)
+def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch_deg, yaw_deg, roll_deg=0.0):
+    pitch = pitch_deg * DEG2RAD
+    yaw   = yaw_deg * DEG2RAD
+    roll  = roll_deg * DEG2RAD
 
-    xp = x_pic - img_cols / 2
-    yp = img_rows / 2 - y_pic
+    # 相机内参 & 畸变
+    K = np.array([
+        [fx, 0,  cx],
+        [0,  fy, cy],
+        [0,  0,  1]
+    ], dtype=np.float64)
 
-    zc = alt / (
-        yp * (cell_height / img_rows) * math.sin(pitch_rad)
-        - xp * (cell_width / img_cols) * math.cos(pitch_rad) * math.sin(roll_rad)
-        - math.cos(pitch_rad) * math.cos(roll_rad)
-    )
-    xc = - zc * xp * (cell_width / img_cols)
-    yc = - zc * yp * (cell_height / img_rows)
+    D = np.array([k1, k2, p1, p2, k3], dtype=np.float64)
 
-    x = (
-        xc * (math.cos(yaw_rad) * math.cos(roll_rad) + math.sin(yaw_rad) * math.sin(pitch_rad) * math.sin(roll_rad))
-        + yc * math.sin(yaw_rad) * math.cos(pitch_rad)
-        + zc * (math.cos(yaw_rad) * math.sin(roll_rad) - math.sin(yaw_rad) * math.sin(pitch_rad) * math.cos(roll_rad))
-    )
-    y = (
-        xc * (-math.sin(yaw_rad) * math.cos(roll_rad) + math.cos(yaw_rad) * math.sin(pitch_rad) * math.sin(roll_rad))
-        + yc * math.cos(yaw_rad) * math.cos(pitch_rad)
-        + zc * (-math.sin(yaw_rad) * math.sin(roll_rad) - math.cos(yaw_rad) * math.sin(pitch_rad) * math.cos(roll_rad))
-    )
+    pts_dist = np.array([[[u, v]]], dtype=np.float64)
 
-    along = x * math.sin(yaw_rad) + y * math.cos(yaw_rad)
-    cross = x * math.cos(yaw_rad) - y * math.sin(yaw_rad)
-    along *= scale_gps
-    x_corr = along * math.sin(yaw_rad) + cross * math.cos(yaw_rad)
-    y_corr = along * math.cos(yaw_rad) - cross * math.sin(yaw_rad)
+    # 修正相机畸变
+    pts_undist = cv2.undistortPoints(pts_dist, K, D)
 
-    m_per_deg_lon, m_per_deg_lat = enu_meters_per_deg(lat)
-    _lon = 1.0 / m_per_deg_lon
-    _lat = 1.0 / m_per_deg_lat
+    x = pts_undist[0, 0, 0]
+    y = pts_undist[0, 0, 1]
 
-    well_lon = x_corr * _lon + lon
-    well_lat = y_corr * _lat + lat
-    return well_lon, well_lat
+    # 相机坐标系射线
+    r_cam = np.array([x, y, 1.0])
+    r_cam = r_cam / np.linalg.norm(r_cam)
+
+    # 相机 → 机体系（相机朝正下方）
+    # 机体系: X前 Y右 Z下
+    r_body = np.array([
+        r_cam[1],  # 前
+        r_cam[0],  # 右
+        r_cam[2]   # 下
+    ])
+    r_body = r_body / np.linalg.norm(r_body)
+
+    # 姿态旋转（机体系 → NED），yaw(Z) pitch(Y) roll(X)
+    rot = R.from_euler('ZYX', [yaw, pitch, roll])
+    R_mat = rot.as_matrix()
+
+    r_ned = R_mat @ r_body
+
+    rN, rE, rD = r_ned
+
+    # 防止看向地平线
+    if abs(rD) < 1e-6:
+        print("Ray is parallel to ground, no intersection.")
+        return None
+
+    # 射线与地面交点，飞机在 (0,0,-rel_alt)
+    t = rel_alt / rD
+
+    north = t * rN
+    east  = t * rE
+
+    # 经纬度
+    lat = lat0 + (north / EARTH_RADIUS) * RAD2DEG
+    lon = lon0 + (east / (EARTH_RADIUS * np.cos(lat0 * DEG2RAD))) * RAD2DEG
+
+    return lon, lat
 
 def init_addr(sockfd):
     sockfd.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # 对socket的配置重用ip和端口号，只有服务端需要这个设置
@@ -443,7 +477,10 @@ def run_cls_batch(cls_model, batch_imgs, batch_meta, infos, parent_idx_offset=0)
             cx = Rx + cx_sub * (Rw / 300.0)
             cy = Ry + cy_sub * (Rh / 300.0)
 
-            detected_lon, detected_lat = get_well_gps(infos[parent_idx][8], infos[parent_idx][9], infos[parent_idx][2], infos[parent_idx][3], infos[parent_idx][4], cx, cy)
+            result = pixel_to_gps(cx, cy, infos[parent_idx][8], infos[parent_idx][9], infos[parent_idx][2], infos[parent_idx][3], infos[parent_idx][4])
+            if result is None:
+                continue
+            detected_lon, detected_lat = result
             idx = update_wells(detected_lon, detected_lat)
 
             if idx:
