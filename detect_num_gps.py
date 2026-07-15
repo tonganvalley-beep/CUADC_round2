@@ -190,7 +190,7 @@ def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch_rad, yaw_rad, roll_rad=0.0):
     r_body = r_body / np.linalg.norm(r_body)
 
     # 姿态旋转（机体系 → NED），yaw(Z) pitch(Y) roll(X)
-    rot = R.from_euler('ZYX', [yaw, pitch, roll])
+    rot = R.from_euler('ZYX', [yaw, pitch, roll],degrees=False)
     R_mat = rot.as_matrix()
 
     r_ned = R_mat @ r_body
