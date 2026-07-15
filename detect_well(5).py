@@ -29,15 +29,15 @@ RAD2DEG = 180.0 / math.pi
 EARTH_RADIUS = 6378137.0  # WGS84 长半轴 (m)
 
 # ---------- 相机内参 (需标定!) ----------
-cam_fx = 800.0     # TODO: 替换为实际标定值
-cam_fy = 800.0
-cam_cx = 960.0     # 主点 x (img_cols/2)
-cam_cy = 540.0     # 主点 y (img_rows/2)
-cam_k1 = 0.0       # 径向畸变
-cam_k2 = 0.0
-cam_k3 = 0.0
-cam_p1 = 0.0       # 切向畸变
-cam_p2 = 0.0
+fx = 800.0     # TODO: 替换为实际标定值
+fy = 800.0
+cx = 960.0     # 主点 x (img_cols/2)
+cy = 540.0     # 主点 y (img_rows/2)
+k1 = 0.0       # 径向畸变
+k2 = 0.0
+k3 = 0.0
+p1 = 0.0       # 切向畸变
+p2 = 0.0
 
 raw_path =  "/home/duidi/Wintter/raw_pic"            #原图存储位置
 info_path = "/home/duidi/Wintter/info_to_ground"     #信息存储位置
@@ -124,12 +124,12 @@ def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch_deg, yaw_deg, roll_deg=0.0):
 
     # 相机内参 & 畸变
     K = np.array([
-        [cam_fx, 0,      cam_cx],
-        [0,      cam_fy, cam_cy],
-        [0,      0,      1]
+        [fx, 0,  cx],
+        [0,  fy, cy],
+        [0,  0,  1]
     ], dtype=np.float64)
 
-    D = np.array([cam_k1, cam_k2, cam_p1, cam_p2, cam_k3], dtype=np.float64)
+    D = np.array([k1, k2, p1, p2, k3], dtype=np.float64)
 
     pts_dist = np.array([[[u, v]]], dtype=np.float64)
 
