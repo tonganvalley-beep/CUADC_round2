@@ -233,29 +233,42 @@ def send(lat, lon):
         print("Node already closed, nothing to do.")
 
 #结果的确定和发送
-def choose_and_send():
+def choose_and_send(cls):
     if not wells:
-        send(0, 0)
-        return
-
+        print("no detection but sent")
+        send(lat, lon)
+        return True
     stats = []
-    for w in wells:
-        pts = w["points"]
+    for idx, w in enumerate(wells):
+        pts = w.get('points', [])
+        if not pts:
+            continue
         lons, lats = zip(*pts)
+        avg_lon = sum(lons)/len(lons); avg_lat = sum(lats)/len(lats)
+        counts = {k: len(v) for k, v in w.get('per_class', {}).items()}
+        main_cls, main_cnt = (None, 0)
+        if counts:
+            main_cls = max(counts.items(), key=lambda x: x[1])[0]
+            main_cnt = counts[main_cls]
+        stats.append((idx, len(pts), avg_lon, avg_lat, main_cls, main_cnt))
+    if not stats:
+        print("no main_cls but sent")
+        send(lat, lon)
+        return True
+    stats = sorted(stats, key=lambda x: x[1], reverse=True)[:10]
 
-        avg_lon = sum(lons)/len(lons)
-        avg_lat = sum(lats)/len(lats)
+    # 输出三组信息
+    print("Top well groups:")
+    for i, (idx, length, avg_lon, avg_lat, main_cls, main_cnt) in enumerate(stats):
+        cls_name = cls.names[main_cls] if main_cls is not None else "Unknown"
+        print(f"Group {i+1}: avg_lon={avg_lon:.7f}, avg_lat={avg_lat:.7f}, main_cls={cls_name}, main_cls_count={main_cnt}")
 
-        counts = {k: len(v) for k, v in w["per_class"].items()}
-        main_cls = max(counts, key=counts.get)
-        main_cnt = counts[main_cls]
+    stats = sorted(stats, key=lambda x: x[4], reverse=True)
+    best_idx, _, m_lon, m_lat, m_cls, m_cnt = stats[0]
+    print(f"Send group: avg_lon={m_lon:.7f}, avg_lat={m_lat:.7f}, main_cls={cls.names[m_cls] if m_cls is not None else 'Unknown'}")
 
-        stats.append((avg_lon, avg_lat, main_cls, main_cnt))
-
-    stats.sort(key=lambda x: x[3], reverse=True)
-    best = stats[0]
-
-    send(best[1], best[0])
+    send(m_lat, m_lon)
+    return True
 
 #原图和信息保存
 def save_raw_and_info(img, info, frame_id):
