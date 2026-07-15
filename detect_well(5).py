@@ -14,16 +14,30 @@ from pathlib import Path
 import mmap
 import yaml
 import signal
+from scipy.spatial.transform import Rotation as R
 
 #需要修改的变量
 well_imgsz = 320        #识别天井时的图片大小
 pic_imgsz = 640         #识别图像时的图片大小
 well_conf = 0.5         #天井识别置信度
 pic_conf = 0.75         #图像识别置信度
-cell_width = 1.263158   #解算参数
-cell_height = 0.947368  #解算参数
-scale_gps = 0.9         #经验值
 circle_wp = 9
+
+# ---------- 坐标解算常量 ----------
+DEG2RAD = math.pi / 180.0
+RAD2DEG = 180.0 / math.pi
+EARTH_RADIUS = 6378137.0  # WGS84 长半轴 (m)
+
+# ---------- 相机内参 (需标定!) ----------
+cam_fx = 800.0     # TODO: 替换为实际标定值
+cam_fy = 800.0
+cam_cx = 960.0     # 主点 x (img_cols/2)
+cam_cy = 540.0     # 主点 y (img_rows/2)
+cam_k1 = 0.0       # 径向畸变
+cam_k2 = 0.0
+cam_k3 = 0.0
+cam_p1 = 0.0       # 切向畸变
+cam_p2 = 0.0
 
 raw_path =  "/home/duidi/Wintter/raw_pic"            #原图存储位置
 info_path = "/home/duidi/Wintter/info_to_ground"     #信息存储位置
@@ -102,23 +116,66 @@ def dis(lon1, lat1, lon2, lat2):
     m_per_deg_lon, m_per_deg_lat = enu_meters_per_deg(lat1)
     return math.sqrt(((lon1 - lon2) * m_per_deg_lon) ** 2 + ((lat1 - lat2) * m_per_deg_lat) ** 2)
 
-#坐标解算
-def get_well_gps(lon, lat, alt, pitch, yaw, x_pic, y_pic):
-    pitch = math.radians(pitch)
-    yaw = math.radians(yaw)
+#坐标解算 (基于相机内参 + 畸变修正)
+def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch_deg, yaw_deg, roll_deg=0.0):
+    pitch = pitch_deg * DEG2RAD
+    yaw   = yaw_deg * DEG2RAD
+    roll  = roll_deg * DEG2RAD
 
-    xp = x_pic - img_cols / 2
-    yp = img_rows / 2 - y_pic
+    # 相机内参 & 畸变
+    K = np.array([
+        [cam_fx, 0,      cam_cx],
+        [0,      cam_fy, cam_cy],
+        [0,      0,      1]
+    ], dtype=np.float64)
 
-    zc = alt / (-math.cos(pitch))
-    xc = -zc * xp * (cell_width / img_cols)
-    yc = -zc * yp * (cell_height / img_rows)
+    D = np.array([cam_k1, cam_k2, cam_p1, cam_p2, cam_k3], dtype=np.float64)
 
-    x = xc * math.cos(yaw) + yc * math.sin(yaw)
-    y = -xc * math.sin(yaw) + yc * math.cos(yaw)
+    pts_dist = np.array([[[u, v]]], dtype=np.float64)
 
-    m_per_deg_lon, m_per_deg_lat = enu_meters_per_deg(lat)
-    return lon + x / m_per_deg_lon, lat + y / m_per_deg_lat
+    # 修正相机畸变
+    pts_undist = cv2.undistortPoints(pts_dist, K, D)
+
+    x = pts_undist[0, 0, 0]
+    y = pts_undist[0, 0, 1]
+
+    # 相机坐标系射线
+    r_cam = np.array([x, y, 1.0])
+    r_cam = r_cam / np.linalg.norm(r_cam)
+
+    # 相机 → 机体系（相机朝正下方）
+    # 机体系: X前 Y右 Z下
+    r_body = np.array([
+        r_cam[1],  # 前
+        r_cam[0],  # 右
+        r_cam[2]   # 下
+    ])
+    r_body = r_body / np.linalg.norm(r_body)
+
+    # 姿态旋转（机体系 → NED），yaw(Z) pitch(Y) roll(X)
+    rot = R.from_euler('ZYX', [yaw, pitch, roll])
+    R_mat = rot.as_matrix()
+
+    r_ned = R_mat @ r_body
+
+    rN, rE, rD = r_ned
+
+    # 防止看向地平线
+    if abs(rD) < 1e-6:
+        print("Ray is parallel to ground, no intersection.")
+        return None
+
+    # 射线与地面交点，飞机在 (0,0,-rel_alt)
+    t = rel_alt / rD
+
+    north = t * rN
+    east  = t * rE
+
+    # 经纬度
+    lat = lat0 + (north / EARTH_RADIUS) * RAD2DEG
+    lon = lon0 + (east / (EARTH_RADIUS * np.cos(lat0 * DEG2RAD))) * RAD2DEG
+
+    return lon, lat
 
 #cut
 def cut(img, results, pad=15):
@@ -385,8 +442,11 @@ def infer_thread(det, cls):
                     cx = rx + (x1 + x2)/2 * (side / pic_imgsz)
                     cy = ry + (y1 + y2)/2 * (side / pic_imgsz)
 
-                    wlon, wlat = get_well_gps(
-                        lon, lat, alt, pitch, yaw, cx, cy)
+                    result = pixel_to_gps(
+                        cx, cy, lon, lat, alt, pitch, yaw, roll)
+                    if result is None:
+                        continue
+                    wlon, wlat = result
 
                     cls_id = int(cls_res[0].boxes.cls[k])
 
