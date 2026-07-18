@@ -1,0 +1,14 @@
+{
+  "input_size": [
+    1,
+    32,
+    32
+  ],
+  "normalization": "(x/255-0.5)/0.5",
+  "train_plates": 540,
+  "validation_plates": 60,
+  "test_plates": 158,
+  "left_accuracy": 0.9620253164556962,
+  "right_accuracy": 0.9746835443037974,
+  "plate_accuracy": 0.9367088607594937
+}

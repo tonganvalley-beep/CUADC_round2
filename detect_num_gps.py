@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import math
 from ultralytics import YOLO
-import pytesseract
 from collections import defaultdict, deque
 import datetime
 import os
@@ -14,7 +13,9 @@ import struct
 import threading
 import mmap
 import yaml
+import time
 from scipy.spatial.transform import Rotation as R
+from digit_recognizer import DigitRecognizer
 
 # ============================
 # TX2-NX 4GB friendly settings
@@ -29,7 +30,9 @@ lon = 120.1097193
 imgsz = 320
 well_conf = 0.5
 pic_conf = 0.75
-num_conf = 80
+digit_conf = 0.80
+digit_split_gap = 3
+digit_model_path = "weights/digit_cnn.ts"
 folder_img = "/home/tx2/Wintter/raw_pic"
 folder_info = "/home/tx2/Wintter/info_to_ground"
 raw_path = folder_img
@@ -48,14 +51,6 @@ CLS_BATCH = 12      # ditto
 IMG_CHUNK = 12      # images per chunk
 QUEUE_MAX = 12      # 线程队列保存的最大数量
 circle_wp = 9
-
-# OCR
-OCR_WHITELIST = "0123456789"
-OCR_PSM = 7
-OCR_OEM = 1
-OCR_GAUSS = 7
-OCR_BLOCK = 15
-OCR_C = 2
 
 # Camera/frame geometry
 img_cols = 1920
@@ -324,7 +319,7 @@ def shm_thread():
         mm[:4] = struct.pack('i', 0)
 
 #推理线程
-def infer_thread(det_model, cls_model):
+def infer_thread(det_model, cls_model, digit_model):
     global num_of_save, running
 
     while running or task_queue:
@@ -364,26 +359,12 @@ def infer_thread(det_model, cls_model):
                 crops.append(crop_img)
                 metas.append((i, *rect_R))
                 if len(crops) == CLS_BATCH:
-                    run_cls_batch(cls_model, crops, metas, infos)
+                    run_cls_batch(cls_model, digit_model, crops, metas, infos)
                     crops, metas = [], []
         if crops:
-            run_cls_batch(cls_model, crops, metas, infos)
+            run_cls_batch(cls_model, digit_model, crops, metas, infos)
 
         torch.cuda.empty_cache()
-
-def get_number(img):
-    config = f'--oem {OCR_OEM} --psm {OCR_PSM} -c tessedit_char_whitelist={OCR_WHITELIST}'
-    data = pytesseract.image_to_data(img, config=config, lang='eng', output_type=pytesseract.Output.DICT)
-    text_items = data.get('text', [])
-    conf_items = data.get('conf', [])
-    if not text_items:
-        return "None", 0.0
-    digits = ''.join(filter(str.isdigit, ''.join(text_items)))
-    confidences = [int(c) for c, t in zip(conf_items, text_items) if str(t).isdigit() and str(c).isdigit()]
-    avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
-    if len(digits) == 2 and avg_conf >= num_conf:
-        return digits, avg_conf
-    return "None", avg_conf
 
 def update_wells(new_lon, new_lat, dis_same_well=5, dis_dfrt_well=10):
     global wells
@@ -448,7 +429,7 @@ def iter_image_paths(root_img, root_info):
         yield img_path, info_path
         idx += 2
 
-def run_cls_batch(cls_model, batch_imgs, batch_meta, infos, parent_idx_offset=0):
+def run_cls_batch(cls_model, digit_model, batch_imgs, batch_meta, infos, parent_idx_offset=0):
     global num_of_save
     results = cls_model.predict(source=batch_imgs, imgsz=imgsz, conf=pic_conf,
                                 device=0, half=True, verbose=False)
@@ -477,7 +458,8 @@ def run_cls_batch(cls_model, batch_imgs, batch_meta, infos, parent_idx_offset=0)
             cx = Rx + cx_sub * (Rw / 300.0)
             cy = Ry + cy_sub * (Rh / 300.0)
 
-            result = pixel_to_gps(cx, cy, infos[parent_idx][8], infos[parent_idx][9], infos[parent_idx][2], infos[parent_idx][3], infos[parent_idx][4])
+            lon0, lat0, alt, pitch, yaw, roll = infos[parent_idx]
+            result = pixel_to_gps(cx, cy, lon0, lat0, alt, pitch, yaw, roll)
             if result is None:
                 continue
             detected_lon, detected_lat = result
@@ -491,24 +473,16 @@ def run_cls_batch(cls_model, batch_imgs, batch_meta, infos, parent_idx_offset=0)
                     pts1 = np.float32([zjjg_det[1], zjjg_det[4], zjjg_det[3], zjjg_det[2]])
                 else:
                     pts1 = np.float32([zjjg_det[4], zjjg_det[1], zjjg_det[2], zjjg_det[3]])
-                pts2 = np.float32([[0, 0], [100, 0], [100, 100], [0, 100]])
+                pts2 = np.float32([[0, 0], [128, 0], [128, 64], [0, 64]])
                 M = cv2.getPerspectiveTransform(pts1, pts2)
-                warped = cv2.warpPerspective(crop_det, M, (100, 100))
+                warped = cv2.warpPerspective(crop_det, M, (128, 64),
+                                             borderMode=cv2.BORDER_CONSTANT,
+                                             borderValue=(255, 255, 255))
 
                 # 轻量 OCR 预处理
-                gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-                gray = cv2.GaussianBlur(gray, (OCR_GAUSS, OCR_GAUSS), 0)
-                binimg = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                            cv2.THRESH_BINARY, OCR_BLOCK, OCR_C)
-                cv2.waitKey(1)
-                kernel = np.ones((11, 11), np.uint8)
-                binimg = cv2.morphologyEx(binimg, cv2.MORPH_OPEN, kernel)
-                kernel = np.ones((1, 1), np.uint8)
-                binimg = cv2.erode(binimg, kernel, iterations=1) # 进行膨胀
+                num_result, result_conf, digit_confs = digit_model.predict(warped)
 
-                num_result, result_conf = get_number(binimg)
-
-                if result_conf > num_conf:
+                if num_result is not None:
                     wells[idx - 1]['per_num'][num_result].append((detected_lon, detected_lat))
 
                     # === 按“识别数字”分文件夹落盘 warp/bin ===
@@ -517,12 +491,11 @@ def run_cls_batch(cls_model, batch_imgs, batch_meta, infos, parent_idx_offset=0)
                             num_dir = save_dir_exp / str(num_result)  # 数字就是文件夹名
                             num_dir.mkdir(parents=True, exist_ok=True)
                             cv2.imwrite(str(num_dir / f"{num_of_save}_{idx}_warp.jpg"), warped)
-                            cv2.imwrite(str(num_dir / f"{num_of_save}_{idx}_bin.jpg"),  binimg)
                             num_of_save += 1
                         except Exception as e:
                             print(f"[WARN] save snaps failed: {e}")
 
-def process_chunk(det_model, cls_model, paths: List[Tuple[str, str]]):
+def process_chunk(det_model, cls_model, digit_model, paths: List[Tuple[str, str]]):
     # Load only this chunk into RAM
     imgs = []
     infos = []
@@ -552,10 +525,10 @@ def process_chunk(det_model, cls_model, paths: List[Tuple[str, str]]):
             crops.append(crop_img)
             metas.append((i, *rect_R))
             if len(crops) == CLS_BATCH:
-                run_cls_batch(cls_model, crops, metas, infos, parent_idx_offset=0)
+                run_cls_batch(cls_model, digit_model, crops, metas, infos, parent_idx_offset=0)
                 crops, metas = [], []
     if crops:
-        run_cls_batch(cls_model, crops, metas, infos, parent_idx_offset=0)
+        run_cls_batch(cls_model, digit_model, crops, metas, infos, parent_idx_offset=0)
 
 def choose_and_send():
     if not wells:
@@ -623,8 +596,12 @@ def main():
     try: cls.model.half()
     except: pass
 
+    digit_model = DigitRecognizer(digit_model_path, device="cuda",
+                                  confidence=digit_conf,
+                                  split_gap=digit_split_gap)
+
     t1 = threading.Thread(target=shm_thread)
-    t2 = threading.Thread(target=infer_thread, args=(det, cls))
+    t2 = threading.Thread(target=infer_thread, args=(det, cls, digit_model))
 
     t1.start()
     t2.start()
