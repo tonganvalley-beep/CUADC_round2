@@ -8,7 +8,7 @@
   "train_plates": 540,
   "validation_plates": 60,
   "test_plates": 158,
-  "left_accuracy": 0.9620253164556962,
+  "left_accuracy": 0.9683544303797469,
   "right_accuracy": 0.9746835443037974,
-  "plate_accuracy": 0.9367088607594937
+  "plate_accuracy": 0.9430379746835443
 }

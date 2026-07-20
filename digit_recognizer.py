@@ -9,12 +9,22 @@ from typing import Optional, Tuple
 
 
 class DigitRecognizer:
-    def __init__(self, model_path: str, device: str = "cuda", confidence: float = 0.80,
+    def __init__(self, model_path: str, device: str = "cuda", confidence: float = 0.50,
                  split_gap: int = 3):
         self.device = torch.device(device if device == "cpu" or torch.cuda.is_available() else "cpu")
         self.model = torch.jit.load(model_path, map_location=self.device).eval()
         self.confidence = confidence
         self.split_gap = max(0, split_gap)
+
+    @staticmethod
+    def binarize_plate(plate: np.ndarray) -> np.ndarray:
+        """Match the binary preprocessing used to build the CNN dataset."""
+        gray = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY) if plate.ndim == 3 else plate
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        _, binary = cv2.threshold(
+            gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        return binary
 
     @staticmethod
     def _prepare(digit: np.ndarray) -> np.ndarray:
@@ -29,6 +39,7 @@ class DigitRecognizer:
 
     @torch.inference_mode()
     def predict(self, plate: np.ndarray) -> Tuple[Optional[str], float, Tuple[float, float]]:
+        plate = self.binarize_plate(plate)
         width = plate.shape[1]
         middle = width // 2
         gap = min(self.split_gap, max(0, middle - 1))

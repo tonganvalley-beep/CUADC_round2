@@ -17,6 +17,8 @@ import time
 from scipy.spatial.transform import Rotation as R
 from digit_recognizer import DigitRecognizer
 
+PROJECT_DIR = Path(__file__).resolve().parent
+
 # ============================
 # TX2-NX 4GB friendly settings
 # ============================
@@ -30,9 +32,9 @@ lon = 120.1097193
 imgsz = 320
 well_conf = 0.5
 pic_conf = 0.75
-digit_conf = 0.80
+digit_conf = 0.50
 digit_split_gap = 3
-digit_model_path = "weights/digit_cnn.ts"
+digit_model_path = str(PROJECT_DIR / "weights" / "digit_cnn.ts")
 folder_img = "/home/tx2/Wintter/raw_pic"
 folder_info = "/home/tx2/Wintter/info_to_ground"
 raw_path = folder_img
@@ -250,7 +252,7 @@ def is_angle_greater_than_180_counterclockwise(p1, p2, p3):
     return 1 if cross_z > 0 else 0
 
 def load_config():
-    with open('/home/duidi/Wintter/src/test/config.yaml', 'r') as f:
+    with open('/home/tx2/Wintter/src/test/config.yaml', 'r') as f:
         return yaml.safe_load(f)
 
 def open_shm():
@@ -295,9 +297,9 @@ def shm_thread():
         frame_id, wp = data[1], data[2]
 
         if wp == circle_wp:
-            choose_and_send()
             print("[INFO] mission complete")
             running = False
+            mm[:4] = struct.pack('i', 0)
             return
 
         lon, lat, alt, pitch, yaw, roll = data[3:]
@@ -455,8 +457,8 @@ def run_cls_batch(cls_model, digit_model, batch_imgs, batch_meta, infos, parent_
             yk = (zjjg[1][1] + zjjg[2][1] + zjjg[3][1] + zjjg[4][1]) / 4
             cx_sub = int(xk * 0.634 + zjjg[0][0] * 0.366)
             cy_sub = int(yk * 0.634 + zjjg[0][1] * 0.366)
-            cx = Rx + cx_sub * (Rw / 300.0)
-            cy = Ry + cy_sub * (Rh / 300.0)
+            cx = Rx + cx_sub * (Rw / float(well_width))
+            cy = Ry + cy_sub * (Rh / float(well_height))
 
             lon0, lat0, alt, pitch, yaw, roll = infos[parent_idx]
             result = pixel_to_gps(cx, cy, lon0, lat0, alt, pitch, yaw, roll)
@@ -473,9 +475,9 @@ def run_cls_batch(cls_model, digit_model, batch_imgs, batch_meta, infos, parent_
                     pts1 = np.float32([zjjg_det[1], zjjg_det[4], zjjg_det[3], zjjg_det[2]])
                 else:
                     pts1 = np.float32([zjjg_det[4], zjjg_det[1], zjjg_det[2], zjjg_det[3]])
-                pts2 = np.float32([[0, 0], [128, 0], [128, 64], [0, 64]])
+                pts2 = np.float32([[0, 0], [100, 0], [100, 100], [0, 100]])
                 M = cv2.getPerspectiveTransform(pts1, pts2)
-                warped = cv2.warpPerspective(crop_det, M, (128, 64),
+                warped = cv2.warpPerspective(crop_det, M, (100, 100),
                                              borderMode=cv2.BORDER_CONSTANT,
                                              borderValue=(255, 255, 255))
 
@@ -586,12 +588,12 @@ def main():
 
     _init_save_dirs()
 
-    det = YOLO("weights/wellcut_1002.pt")
+    det = YOLO(str(PROJECT_DIR / "weights" / "wellcut_1002.pt"))
     det.fuse()
     try: det.model.half()
     except: pass
 
-    cls = YOLO("weights/round2_0914.pt")
+    cls = YOLO(str(PROJECT_DIR / "weights" / "round2_0914.pt"))
     cls.fuse()
     try: cls.model.half()
     except: pass
