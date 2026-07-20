@@ -14,7 +14,7 @@ import random
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageEnhance, ImageOps
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -89,13 +89,35 @@ class DigitDataset(Dataset):
             digit = image.crop((0, 0, max(1, mid - gap), h))
         else:
             digit = image.crop((min(w - 1, mid + gap), 0, w, h))
+        if self.train:
+            digit = self._morphology(digit)
         digit = ImageOps.pad(digit, (32, 32), color=255, method=Image.Resampling.BILINEAR)
         if self.train:
             digit = self._augment(digit)
+            digit = self._degrade(digit)
         array = np.asarray(digit, dtype=np.float32) / 255.0
         tensor = torch.from_numpy(array).unsqueeze(0)
         tensor = (tensor - 0.5) / 0.5
         return tensor, int(row["label"][side])
+
+    @staticmethod
+    def _morphology(image: Image.Image) -> Image.Image:
+        # The source plates are binary (black digits on a white background).
+        # Morphology is applied before the 32x32 resize: a 3x3 kernel at the
+        # source resolution is mild enough to imitate thresholding errors.
+        # Pillow's MinFilter expands black foreground; MaxFilter thins it.
+        operation = random.random()
+        if operation < 0.10:
+            image = image.filter(ImageFilter.MinFilter(3))  # black dilation
+        elif operation < 0.20:
+            image = image.filter(ImageFilter.MaxFilter(3))  # black erosion
+        elif operation < 0.25:
+            image = image.filter(ImageFilter.MaxFilter(3)).filter(
+                ImageFilter.MinFilter(3))  # black opening
+        elif operation < 0.30:
+            image = image.filter(ImageFilter.MinFilter(3)).filter(
+                ImageFilter.MaxFilter(3))  # black closing
+        return image
 
     @staticmethod
     def _augment(image: Image.Image) -> Image.Image:
@@ -103,6 +125,31 @@ class DigitDataset(Dataset):
         image = image.rotate(angle, resample=Image.Resampling.BILINEAR, fillcolor=255)
         image = ImageEnhance.Brightness(image).enhance(random.uniform(0.75, 1.25))
         image = ImageEnhance.Contrast(image).enhance(random.uniform(0.75, 1.35))
+        return image
+
+    @staticmethod
+    def _degrade(image: Image.Image) -> Image.Image:
+        """Create one mild camera/threshold degradation for training only."""
+        operation = random.random()
+        if operation < 0.20:
+            # Simulate a plate occupying fewer source pixels before it is
+            # resized for the CNN. Keep the range mild enough to preserve the
+            # identity of thin digits such as 1 and 7.
+            side = random.randint(20, 28)
+            image = image.resize((side, side), Image.Resampling.BILINEAR)
+            image = image.resize((32, 32), Image.Resampling.BILINEAR)
+        elif operation < 0.35:
+            image = image.filter(ImageFilter.GaussianBlur(
+                radius=random.uniform(0.3, 0.8)))
+        elif operation < 0.45:
+            # A few salt/pepper pixels imitate isolated Otsu threshold noise.
+            array = np.asarray(image, dtype=np.uint8).copy()
+            count = random.randint(2, 8)
+            ys = np.random.randint(0, array.shape[0], size=count)
+            xs = np.random.randint(0, array.shape[1], size=count)
+            values = np.random.choice(np.array([0, 255], dtype=np.uint8), size=count)
+            array[ys, xs] = values
+            image = Image.fromarray(array, mode="L")
         return image
 
 
