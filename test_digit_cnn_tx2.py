@@ -44,9 +44,15 @@ def main():
     parser.add_argument("inputs", nargs="+", help="rectified plate files, globs, or directories")
     parser.add_argument("--model", default="weights/digit_cnn.ts")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
-    parser.add_argument("--threshold", type=float, default=0.50)
+    parser.add_argument("--left-threshold", type=float, default=0.45)
+    parser.add_argument("--right-threshold", type=float, default=0.60)
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="legacy option: override both side thresholds")
     parser.add_argument("--gap", type=int, default=3)
     args = parser.parse_args()
+    if args.threshold is not None:
+        args.left_threshold = args.threshold
+        args.right_threshold = args.threshold
 
     paths = collect_images(args.inputs)
     if not paths:
@@ -58,8 +64,8 @@ def main():
                                  confidence=0.0, split_gap=args.gap)
     print("model={} device={} images={}".format(
         os.path.abspath(args.model), recognizer.device, len(paths)))
-    print("threshold={:.3f} gap={} runtime_plate=100x100".format(
-        args.threshold, args.gap))
+    print("left_threshold={:.3f} right_threshold={:.3f} gap={} runtime_plate=100x100".format(
+        args.left_threshold, args.right_threshold, args.gap))
 
     passed = 0
     for index, path in enumerate(paths, 1):
@@ -70,15 +76,16 @@ def main():
             continue
         plate = cv2.resize(image, (100, 100), interpolation=cv2.INTER_LINEAR)
         text, minimum, pair = recognizer.predict(plate)
-        status = "PASS" if minimum >= args.threshold else "LOW"
+        status = ("PASS" if pair[0] >= args.left_threshold and
+                  pair[1] >= args.right_threshold else "LOW")
         if status == "PASS":
             passed += 1
         print("[{}/{}] {} pred={} left={:.4f} right={:.4f} min={:.4f} {}".format(
             index, len(paths), status, text, pair[0], pair[1], minimum,
             os.path.basename(path)))
 
-    print("summary: pass={}/{} threshold={:.3f}".format(
-        passed, len(paths), args.threshold))
+    print("summary: pass={}/{} left_threshold={:.3f} right_threshold={:.3f}".format(
+        passed, len(paths), args.left_threshold, args.right_threshold))
 
 
 if __name__ == "__main__":

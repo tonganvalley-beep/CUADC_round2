@@ -10,10 +10,15 @@ from typing import Optional, Tuple
 
 class DigitRecognizer:
     def __init__(self, model_path: str, device: str = "cuda", confidence: float = 0.50,
-                 split_gap: int = 3):
+                 split_gap: int = 3, left_confidence: Optional[float] = None,
+                 right_confidence: Optional[float] = None):
         self.device = torch.device(device if device == "cpu" or torch.cuda.is_available() else "cpu")
         self.model = torch.jit.load(model_path, map_location=self.device).eval()
-        self.confidence = confidence
+        # Keep confidence as a backward-compatible fallback for old callers.
+        self.left_confidence = (confidence if left_confidence is None
+                                else float(left_confidence))
+        self.right_confidence = (confidence if right_confidence is None
+                                 else float(right_confidence))
         self.split_gap = max(0, split_gap)
 
     @staticmethod
@@ -50,7 +55,8 @@ class DigitRecognizer:
         probs = torch.softmax(logits.float(), dim=1)
         confs, digits = probs.max(dim=1)
         conf_pair = (float(confs[0]), float(confs[1]))
-        if min(conf_pair) < self.confidence:
+        if (conf_pair[0] < self.left_confidence or
+                conf_pair[1] < self.right_confidence):
             return None, min(conf_pair), conf_pair
         text = f"{int(digits[0])}{int(digits[1])}"
         return text, min(conf_pair), conf_pair

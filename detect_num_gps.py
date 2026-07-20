@@ -32,9 +32,10 @@ lon = 120.1097193
 imgsz = 320
 well_conf = 0.5
 pic_conf = 0.75
-digit_conf = 0.50
+digit_left_conf = 0.45
+digit_right_conf = 0.60
 digit_split_gap = 3
-digit_model_path = str(PROJECT_DIR / "weights" / "digit_cnn.ts")
+digit_model_path = str(PROJECT_DIR / "weights" / "digit_cnn_degrade_v5.ts")
 folder_img = "/home/tx2/Wintter/raw_pic"
 folder_info = "/home/tx2/Wintter/info_to_ground"
 raw_path = folder_img
@@ -599,8 +600,9 @@ def main():
     except: pass
 
     digit_model = DigitRecognizer(digit_model_path, device="cuda",
-                                  confidence=digit_conf,
-                                  split_gap=digit_split_gap)
+                                  split_gap=digit_split_gap,
+                                  left_confidence=digit_left_conf,
+                                  right_confidence=digit_right_conf)
 
     t1 = threading.Thread(target=shm_thread)
     t2 = threading.Thread(target=infer_thread, args=(det, cls, digit_model))
