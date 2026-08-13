@@ -1,0 +1,26 @@
+# Dataset images and generated previews
+*.jpg
+*.jpeg
+*.png
+*.bmp
+
+# Bulk text metadata and generated labels
+*.txt
+!CMakeLists.txt
+*.csv
+*_analysis.json
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Runtime logs
+*.log
+
+# Local archives
+*.zip
+*.rar
+
+# Common editor/OS noise
+.DS_Store
+Thumbs.db

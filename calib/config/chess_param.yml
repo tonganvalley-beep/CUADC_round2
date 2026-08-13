@@ -1,0 +1,9 @@
+# 圆点标定板参数
+row: 7
+col: 7
+
+# 圆点直径(mm)
+diameter: 20
+
+# 圆心间距
+distance: 40
