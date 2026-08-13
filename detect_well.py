@@ -9,9 +9,9 @@ import cv2
 import numpy as np
 import math
 import os
+import shutil
 import time
 import torch
-import socket
 import signal
 import yaml
 import threading
@@ -19,8 +19,12 @@ import datetime
 
 from pathlib import Path
 from collections import defaultdict, deque
-from ultralytics import YOLO
-from digit_recognizer import DigitRecognizer
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
+
+from trt_wrapper import TensorRTWrapper
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -35,6 +39,10 @@ from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import WaypointReached
 from tf.transformations import euler_from_quaternion
 
+import sys
+sys.path.insert(0, '/home/tx2/Wintter/devel/lib/python2.7/dist-packages')
+from test.msg import gps as GpsMsg, yoloresults
+
 # 参数配置
 
 # 距离限制
@@ -42,12 +50,10 @@ dis_lim = 50
 DIS_SHOW = True
 
 # 摄像头
-FPS = 5                     # 拍照帧率
+FPS = 7                     # 拍照帧率
 exptr = "5000000 5000000"   # 曝光时长
 
 # 读取参数
-PROJECT_DIR = Path(__file__).resolve().parent
-
 GROUND_TEST = False
 SCOUT_LAT = 39.5861817
 SCOUT_LON = 116.1997466
@@ -56,18 +62,18 @@ TARGET_LON = 116.1997466
 SEND_WP = 9
 
 # YOLO参数
-well_imgsz = 640        # 整帧关键点检测图片尺寸
-well_conf = 0.6         # 整帧关键点检测置信度
+well_imgsz = 640        # 第一轮关键点识别图片尺寸
+pic_imgsz = 224         # 第二轮识别图片尺寸
+
+well_conf = 0.6         # 第一轮关键点识别置信度
+pic_conf = 0.75         # 第二轮识别置信度
+well_iou = 0.45         # 第一轮NMS IoU
+trt_iou = 0.45          # TensorRT分类阶段NMS IoU
 
 QUEUE_MAX = 12
-BATCH_SIZE = 2
+BATCH_SIZE = 1
+CLS_BATCH = 1
 SAVE_QUEUE_MAX=12
-
-# 数字识别参数
-digit_left_conf = 0.45
-digit_right_conf = 0.60
-digit_split_gap = 3
-digit_model_path = str(PROJECT_DIR / "weights" / "digit_cnn_degrade_v5.ts")
 WELL_KPT_CONF = 0.35            # 关键点置信度阈值，低于该值的天井不进行裁剪
 WELL_SIDE_MIN = 10.0            # 四边形每边的最小长度
 WELL_AREA_MIN = 100.0           # 四边形面积最小值
@@ -83,6 +89,9 @@ k2 = 0.105996
 p1 = 0.001179
 p2 = -0.001208
 k3 = 0.001222
+DEG2RAD = np.pi / 180.0
+RAD2DEG = 180.0 / np.pi
+EARTH_RADIUS = 6378137.0  # WGS84
 
  # 相机内参 & 畸变
 K = np.array([
@@ -96,10 +105,6 @@ D = np.array([k1, k2, p1, p2, k3], dtype=np.float64)
 img_cols = 1920
 img_rows = 1080
 
-DEG2RAD = math.pi / 180.0
-RAD2DEG = 180.0 / math.pi
-EARTH_RADIUS = 6378137.0
-
 # 路径
 raw_path = "/home/tx2/Wintter/raw_pic"
 info_path = "/home/tx2/Wintter/info_to_ground"
@@ -107,16 +112,26 @@ folder_cut = "/home/tx2/Wintter/send_to_ground"
 runs_root = Path("runs/detect_well/exp")
 
 SAVE_CROPS = True           # 是否存储裁剪下来的天井
-SAVE_NUM_SNAPS = True       # 是否按识别数字存储透视矫正图
+SAVE_WELL_SNAPS = True      # 是否存储识别过程中裁剪的部分
 
-# 网络
-SEND_PORT = 10000
-send_server_addr = ("127.0.0.1",SEND_PORT)
-response = b''
+# 是否启用TensorRT第一阶段推理，默认开启
+USE_TRT_POSE = os.getenv("DETECT_WELL_USE_TRT_POSE", "1") == "1"
+# 是否启用TensorRT分类推理，默认开启
+USE_TRT_CLS = os.getenv("DETECT_WELL_USE_TRT_CLS", "1") == "1"
+# TRT第一阶段引擎文件路径，默认weights/step1_0717_640.engine
+POSE_ENGINE_PATH = os.getenv("DETECT_WELL_POSE_ENGINE", "weights/step1_0724.engine")
+# TRT分类引擎文件路径，默认weights/round1_0720.engine
+CLS_ENGINE_PATH = os.getenv("DETECT_WELL_CLS_ENGINE", "weights/round1_0720.engine")
+# TRT底层封装动态库路径，默认当前目录trt_wrapper下的libtrt_wrapper.so
+TRT_LIB_PATH = os.getenv("DETECT_WELL_TRT_LIB", "./trt_wrapper/libtrt_wrapper.so")
+
+# ROS publishers（替代原 socket 发送，直接发布 GPS 结果）
+gps_pub = None
+yoloresult_pub = None
 
 # ROS飞机状态
-plane_lat = 39.5861817
-plane_lon = 116.1997466
+plane_lat = 0.0
+plane_lon = 0.0
 plane_alt = 0.0
 plane_pitch = 0.0
 plane_yaw = 0.0
@@ -137,10 +152,16 @@ queue_lock = threading.Lock()
 save_queue = deque()
 save_queue_lock = threading.Lock()
 
+# 裁剪图片保存队列（异步写磁盘，避免阻塞推理线程）
+crop_save_queue = deque()
+crop_save_lock = threading.Lock()
+CROP_SAVE_MAX = 256
+
 # 状态锁
 state_lock = threading.Lock()
 
-running = True
+other_thread_running = True
+camera_running =True
 
 # wells结果
 wells = []
@@ -195,9 +216,9 @@ class GstCamera:
 # 信号退出
 def shutdown_handler(sig, frame):
 
-    global running
+    global other_thread_running
     print("[INFO] shutdown signal")
-    running = False
+    other_thread_running = False
 
 # 配置读取
 def load_config():
@@ -240,9 +261,26 @@ def init_dirs():
     if SAVE_CROPS:
         os.makedirs(folder_cut, exist_ok=True)
     # 识别过程截取图片保存路径
-    if SAVE_NUM_SNAPS:
+    if SAVE_WELL_SNAPS:
         save_dir_exp = increment_path(runs_root)
         save_dir_exp.mkdir(parents=True, exist_ok=True)
+
+def clean_dirs():
+    """清空 raw / info / cut 三个目录下的旧文件"""
+    for d in [raw_path, info_path, folder_cut]:
+        if os.path.isdir(d):
+            for f in os.listdir(d):
+                p = os.path.join(d, f)
+                try:
+                    if os.path.isfile(p) or os.path.islink(p):
+                        os.unlink(p)
+                    elif os.path.isdir(p):
+                        shutil.rmtree(p)
+                except Exception as e:
+                    print(f"[WARN] clean_dirs failed for {p}: {e}")
+        else:
+            os.makedirs(d, exist_ok=True)
+    print("[INFO] cleaned raw_path, info_path, folder_cut")
 
 def gps_cb(msg):
 
@@ -382,7 +420,7 @@ def get_well_gps(u, v, lon0, lat0, rel_alt, pitch, yaw, roll = 0.0):
 
     north = t * rN
     east  = t * rE
-    print(f"north, east are {north}, {east} respectively.")
+    # print(f"north, east are {north}, {east} respectively.")
 
     # 经纬度
     lat = lat0 + (north / EARTH_RADIUS) * RAD2DEG
@@ -438,19 +476,20 @@ def is_valid_well_quad(pts):
 
     return _is_parallel(edges[0], edges[2], WELL_PARALLEL_TOL_DEG) and _is_parallel(edges[1], edges[3], WELL_PARALLEL_TOL_DEG)
 
-# 天井关键点透视裁剪：输出摆正后的完整两位数字牌和原图中心坐标
+# 天井关键点透视裁剪
 def cut(img, results):
 
     global num_of_cut
 
     out = []
 
-    if results is None or results.keypoints is None:
+    if results.keypoints is None:
         return out
 
     kpts = results.keypoints.data.cpu().numpy()
 
     for kp in kpts:
+
         if len(kp) < 5:
             continue
 
@@ -465,30 +504,70 @@ def cut(img, results):
         center_x = (p1[0] + p2[0] + p3[0] + p4[0]) / 4.0
         center_y = (p1[1] + p2[1] + p3[1] + p4[1]) / 4.0
 
-        direction = is_angle_greater_than_180_counterclockwise(p1, p2, p3)
-        if direction == 0:
-            src_points = np.float32([p1, p4, p3, p2])
+        f = is_angle_greater_than_180_counterclockwise(p1, p2, p3)
+        if f == 0:
+            pts1 = np.float32([p1, p4, p3, p2])
         else:
-            src_points = np.float32([p4, p1, p2, p3])
+            pts1 = np.float32([p4, p1, p2, p3])
 
-        if not is_valid_well_quad(src_points):
+        if not is_valid_well_quad(pts1):
             continue
 
-        src_points = expand_quad_pixel(src_points, expand=3)
-        dst_points = np.float32([
-            [0, 0], [100, 0], [100, 100], [0, 100]
-        ])
-        transform = cv2.getPerspectiveTransform(src_points, dst_points)
-        crop = cv2.warpPerspective(
-            img,
-            transform,
-            (100, 100),
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(255, 255, 255)
-        )
+        pts1 = expand_quad_pixel(pts1, expand=3)
+        pts2 = np.float32([[0, 0], [100, 0], [100, 100], [0, 100]])
+        M = cv2.getPerspectiveTransform(pts1, pts2)
+        warped = cv2.warpPerspective(img, M, (100, 100))
+        crop = warped
 
         if SAVE_CROPS:
-            cv2.imwrite(os.path.join(folder_cut, f"{num_of_cut}.jpg"), crop)
+            path = os.path.join(folder_cut, f"{num_of_cut}.jpg")
+            with crop_save_lock:
+                if len(crop_save_queue) >= CROP_SAVE_MAX:
+                    crop_save_queue.popleft()
+                crop_save_queue.append((crop, path))
+            num_of_cut += 1
+
+        out.append((crop, (center_x, center_y)))
+
+    return out
+
+def cut_from_boxes(img, results):
+
+    global num_of_cut
+
+    out = []
+    if results.boxes is None or len(results.boxes) == 0:
+        return out
+
+    h, w = img.shape[:2]
+    xyxy = results.boxes.xyxy
+    confs = results.boxes.conf
+
+    for i in range(len(results.boxes)):
+        if confs is not None and float(confs[i]) < well_conf:
+            continue
+
+        x1, y1, x2, y2 = xyxy[i]
+        x1 = int(max(0, min(w - 1, round(float(x1)))))
+        y1 = int(max(0, min(h - 1, round(float(y1)))))
+        x2 = int(max(0, min(w, round(float(x2)))))
+        y2 = int(max(0, min(h, round(float(y2)))))
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            continue
+
+        crop = img[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+
+        if SAVE_CROPS:
+            path = os.path.join(folder_cut, f"{num_of_cut}.jpg")
+            with crop_save_lock:
+                if len(crop_save_queue) >= CROP_SAVE_MAX:
+                    crop_save_queue.popleft()
+                crop_save_queue.append((crop, path))
             num_of_cut += 1
 
         out.append((crop, (center_x, center_y)))
@@ -496,7 +575,7 @@ def cut(img, results):
     return out
 
 # wells管理
-def update_wells(new_lon, new_lat, dis_same_well=5, dis_dfrt_well=10):
+def update_wells(new_lon, new_lat, dis_same_well=10, dis_dfrt_well=10):
 
     global wells
 
@@ -509,7 +588,7 @@ def update_wells(new_lon, new_lat, dis_same_well=5, dis_dfrt_well=10):
                 "lon":new_lon,
                 "lat":new_lat,
                 "points":[(new_lon, new_lat)],
-                "per_num":defaultdict(list)
+                "per_class":defaultdict(list)
             }
         )
         return 1
@@ -538,70 +617,49 @@ def update_wells(new_lon, new_lat, dis_same_well=5, dis_dfrt_well=10):
                 "lon":new_lon,
                 "lat":new_lat,
                 "points":[(new_lon, new_lat)],
-                "per_num":defaultdict(list)
+                "per_class":defaultdict(list)
             }
         )
 
         return len(wells)
     return None
 
-# socket发送
-def init_addr(sock):
+# ROS 直接发布 GPS 结果（替代原 socket 发送给 receive_gps.cpp）
+def send_gps_via_ros(lat, lon):
 
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(send_server_addr)
-    sock.listen(40)
+    global gps_pub, yoloresult_pub, other_thread_running
 
-def send(lat, lon):
+    # 通知 main_ctl：YOLO 检测完成
+    yolo_result = yoloresults()
+    yolo_result.flag = 1
 
-    global running
+    # 等待 main_ctl 接受通知
+    while yoloresult_pub.get_num_connections() == 0 and not rospy.is_shutdown():
+        rospy.logwarn("waiting for subscriber on 'mainctl'... current: %d", yoloresult_pub.get_num_connections())
+        rospy.sleep(0.1)
 
-    # 创建 socket 转换为 Client 模式
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
-    try:
-        # 连接 C++ 服务端
-        sock.connect(send_server_addr)
-        print(f"[INFO] Connected to GPS server. Sending data...")
+    yoloresult_pub.publish(yolo_result)
 
-        # 第一步：发送纬度
-        sock.sendall(str(lat).encode())
-        ack = sock.recv(100)
-        if ack != b'get lat success   ':
-            print(f"[ERROR] lat ack failed, got: {ack}")
-            return
+    # 等待 throw_ways 订阅 gps topic
+    while gps_pub.get_num_connections() == 0 and not rospy.is_shutdown():
+        rospy.logwarn("waiting for subscriber on 'gps'... current: %d", gps_pub.get_num_connections())
+        rospy.sleep(0.1)
 
-        # 第二步：发送经度
-        sock.sendall(str(lon).encode())
-        ack = sock.recv(100)
-        if ack != b'get lon success   ':
-            print(f"[ERROR] lon ack failed, got: {ack}")
-            return
+    # 发布目标 GPS
+    pub_gps = GpsMsg()
+    pub_gps.latitude = lat
+    pub_gps.longitude = lon
+    gps_pub.publish(pub_gps)
+    rospy.loginfo("GPS published successfully via ROS: lat=%.7f, lon=%.7f", lat, lon)
 
-        # 第三步：发送结束标志
-        sock.sendall(b'1')
-        ack = sock.recv(100)
-        if ack != b'send success      ':
-            print(f"[ERROR] final ack failed, got: {ack}")
-            return
+    other_thread_running = False
 
-        print("[INFO] GPS data completely sent in one connection!")
-
-    except Exception as e:
-        print(f"[ERROR] Socket communication error: {e}")
-    finally:
-        # 关闭客户端连接
-        sock.close()
-
-    running=False
-
-# 选择最终目标：检测次数最多的三口井中，按识别数字取中位数
-def choose_and_send():
+# 选择最终目标
+def choose_and_send_gps_via_ros(cls):
 
     if not wells:
         print("no detection but sent")
-        send(TARGET_LAT, TARGET_LON)
+        send_gps_via_ros(TARGET_LAT, TARGET_LON)
         return True
 
     stats = []
@@ -612,44 +670,35 @@ def choose_and_send():
         lons, lats = zip(*pts)
         avg_lon = sum(lons) / len(lons)
         avg_lat = sum(lats) / len(lats)
-        counts = {k: len(v) for k, v in w.get("per_num", {}).items()}
-        main_num, main_cnt = (None, 0)
+        counts = {k: len(v) for k, v in w.get("per_class", {}).items()}
+        main_cls, main_cnt = (None, 0)
         if counts:
-            filtered = {k: v for k, v in counts.items() if k not in (None, "None")}
-            if filtered:
-                main_num, main_cnt = max(filtered.items(), key=lambda x: x[1])
-        stats.append((idx, len(pts), avg_lon, avg_lat, main_num, main_cnt))
+            main_cls = max(counts.items(), key=lambda x: x[1])[0]
+            main_cnt = counts[main_cls]
+        stats.append((idx, len(pts), avg_lon, avg_lat, main_cls, main_cnt))
 
     if not stats:
-        print("no main_num but sent")
-        send(TARGET_LAT, TARGET_LON)
+        print("no main_cls but sent")
+        send_gps_via_ros(TARGET_LAT, TARGET_LON)
         return True
 
     stats = sorted(stats, key=lambda x: x[1], reverse=True)[:3]
 
-    print("Top 3 well groups:")
-    for i, (_, _, avg_lon, avg_lat, main_num, main_cnt) in enumerate(stats):
+    print("Top well groups:")
+    for i, (_, _, avg_lon, avg_lat, main_cls, main_cnt) in enumerate(stats):
+        cls_name = cls.names[main_cls] if main_cls is not None else "Unknown"
         print(
             f"Group {i+1}: avg_lon={avg_lon:.7f}, avg_lat={avg_lat:.7f}, "
-            f"main_num={main_num}, main_num_count={main_cnt}"
+            f"main_cls={cls_name}, main_cls_count={main_cnt}"
         )
 
-    numbered = []
-    for idx, _, avg_lon, avg_lat, main_num, _ in stats:
-        try:
-            number = int(main_num) if main_num not in (None, "None") else -1
-        except (TypeError, ValueError):
-            number = -1
-        numbered.append((number, idx, avg_lon, avg_lat, main_num))
-
-    numbered.sort(key=lambda x: x[0])
-    median_idx = 1 if len(numbered) == 3 else 0
-    _, _, m_lon, m_lat, m_num = numbered[median_idx]
+    stats = sorted(stats, key=lambda x: x[4] if x[4] is not None else -1, reverse=True)
+    _, _, m_lon, m_lat, m_cls, _ = stats[0]
     print(
         f"Send group: avg_lon={m_lon:.7f}, avg_lat={m_lat:.7f}, "
-        f"main_num={m_num}"
+        f"main_cls={cls.names[m_cls] if m_cls is not None else 'Unknown'}"
     )
-    send(m_lat, m_lon)
+    send_gps_via_ros(m_lat, m_lon)
     return True
 
 # 保存图片和飞机信息
@@ -672,7 +721,7 @@ def camera_thread(cap):
 
     frame_id = 0
 
-    while running and not rospy.is_shutdown():
+    while camera_running and not rospy.is_shutdown():
 
         # 获取图像
         ret, frame = cap.read()
@@ -695,7 +744,7 @@ def camera_thread(cap):
             print(f"dis={distance}")
             DIS_SHOW = False
 
-        if (distance < dis_lim and now_alt > 10) or GROUND_TEST:
+        if (camera_running and distance < dis_lim and now_alt > 10) or GROUND_TEST:
 
             frame_id += 1
             info = (now_lon, now_lat, now_alt, now_pitch, now_yaw, now_roll)
@@ -703,21 +752,23 @@ def camera_thread(cap):
             data = FrameData(frame, info, frame_id)
 
             # 保存队列
-            with save_queue_lock:
-                if len(save_queue) >= SAVE_QUEUE_MAX:
-                    save_queue.popleft()
-                save_queue.append(data)
+            if (camera_running):
+                with save_queue_lock:
+                    if len(save_queue) >= SAVE_QUEUE_MAX:
+                        save_queue.popleft()
+                    save_queue.append(data)
 
             # 推理队列
-            with queue_lock:
-                if len(task_queue) >= QUEUE_MAX:
-                    task_queue.popleft()
-                    print("infer too slow")
-                task_queue.append(data)
+            if(other_thread_running):
+                with queue_lock:
+                    if len(task_queue) >= QUEUE_MAX:
+                        task_queue.popleft()
+                        print("infer too slow")
+                    task_queue.append(data)
         
 def save_thread():
 
-    while running or save_queue:
+    while camera_running or other_thread_running or save_queue:
 
         data=None
 
@@ -731,82 +782,140 @@ def save_thread():
 
         save_raw_and_info(data.img,data.info,data.frame_id)
 
-# 推理线程：整帧关键点 -> 透视摆正两位数字牌 -> CNN 左右切分识别
-def infer_thread(pose_model, digit_model):
+def crop_save_thread():
+    """异步写裁剪图片到磁盘，避免阻塞推理线程"""
+    while other_thread_running or crop_save_queue:
+        item = None
+        with crop_save_lock:
+            if crop_save_queue:
+                item = crop_save_queue.popleft()
+
+        if item is None:
+            time.sleep(0.01)
+            continue
+
+        crop_img, path = item
+        try:
+            cv2.imwrite(path, crop_img)
+        except Exception as e:
+            print(f"[ERROR] crop_save_thread imwrite failed: {e}")
+
+# YOLO推理线程
+def infer_thread(pose, cls):
 
     global num_of_save
 
-    while running or task_queue:
+    while other_thread_running or task_queue:
 
-        batch=[]
+        data = None
 
         with queue_lock:
-            while (task_queue and len(batch)<BATCH_SIZE):
-                batch.append(task_queue.popleft())
+            if task_queue:
+                data = task_queue.popleft()
 
-        if not batch:
+        if data is None:
             time.sleep(0.005)
             continue
 
-        imgs = [x.img for x in batch]
-        infos = [x.info for x in batch]
+        img = data.img
+        info = data.info
 
-        # 在整帧中直接检测数字牌的中心和四个角点
-        pose_results=pose_model.predict(
-            list(imgs),
+        # 预缩放：1920x1080 → 960x540，大幅减少 C++ 内部 CPU resize 时间
+        # 关键点坐标会在推理后缩放回原始分辨率
+        h0, w0 = img.shape[:2]
+        det_w, det_h = 960, 540
+        scale_x = float(w0) / float(det_w)
+        scale_y = float(h0) / float(det_h)
+        img_det = cv2.resize(img, (det_w, det_h), interpolation=cv2.INTER_NEAREST)
+
+        t0 = time.time()
+
+        # 第一阶段 pose关键点检测
+        pose_results = pose.predict(
+            img_det,
             imgsz=well_imgsz,
             conf=well_conf,
-            batch=len(imgs),
+            iou=well_iou,
+            batch=1,
             device=0,
-            half=True,
             verbose=False
         )
+        t1 = time.time()
 
-        # 地面测试
-        if GROUND_TEST:
-            send(TARGET_LAT, TARGET_LON)
-            print("[INFO] send on the ground")
-            return
+        pose_result = pose_results[0] if pose_results else None
+        if pose_result is None:
+            continue
 
-        for i, result in enumerate(pose_results):
-            for crop_img, (center_x, center_y) in cut(imgs[i], result):
-                lon, lat, alt, pitch, yaw, roll = infos[i]
-                well_gps = get_well_gps(
-                    center_x, center_y, lon, lat, alt, pitch, yaw, roll
-                )
-                if well_gps is None:
-                    continue
+        # 将关键点和 bbox 坐标从检测分辨率缩放回原始分辨率
+        if pose_result.keypoints is not None:
+            kpts = pose_result.keypoints.data.cpu().numpy()
+            kpts[:, :, 0] *= scale_x
+            kpts[:, :, 1] *= scale_y
+        if pose_result.boxes is not None and len(pose_result.boxes) > 0:
+            pose_result.boxes.xyxy[:, [0, 2]] *= scale_x
+            pose_result.boxes.xyxy[:, [1, 3]] *= scale_y
 
-                wlon, wlat = well_gps
+        if pose_result.keypoints is not None:
+            crops = cut(img, pose_result)
+        else:
+            crops = cut_from_boxes(img, pose_result)
+        t2 = time.time()
+
+        t_gps_total = 0.0
+        t_cls_total = 0.0
+        n_wells = len(crops)
+
+        for crop_img, (center_x, center_y) in crops:
+            lon,lat,alt,pitch,yaw,roll = info
+            tg0 = time.time()
+            well_gps = get_well_gps(center_x, center_y, lon, lat, alt, pitch, yaw, roll)
+            t_gps_total += time.time() - tg0
+            if well_gps is None:
+                continue
+            wlon, wlat = well_gps
+
+            tc0 = time.time()
+            cls_results = cls.predict(
+                crop_img,
+                imgsz=pic_imgsz,
+                conf=pic_conf,
+                iou=trt_iou,
+                batch=1,
+                device=0,
+                verbose=False
+            )
+            t_cls_total += time.time() - tc0
+            if not cls_results:
+                continue
+
+            result = cls_results[0]
+            if result.boxes is None or len(result.boxes) == 0:
+                continue
+
+            for k in range(len(result.boxes)):
+                cls_id = int(result.boxes.cls[k])
                 idx = update_wells(wlon, wlat)
-                if not idx:
-                    continue
+                if idx:
+                    wells[idx - 1]["per_class"][cls_id].append((wlon, wlat))
 
-                # predict() 内部会二值化整张牌、左右裁剪并拼回两位数字。
-                num_result, result_conf, digit_confs = digit_model.predict(crop_img)
-                if num_result is None:
-                    continue
+                if SAVE_WELL_SNAPS and save_dir_exp and idx:
+                    cls_dir = (save_dir_exp / f"cls_{cls_id}")
+                    cls_dir.mkdir(parents=True, exist_ok=True)
+                    path = str(cls_dir / f"{num_of_save}_{idx}.jpg")
+                    with crop_save_lock:
+                        if len(crop_save_queue) >= CROP_SAVE_MAX:
+                            crop_save_queue.popleft()
+                        crop_save_queue.append((crop_img, path))
+                    num_of_save += 1
 
-                wells[idx - 1]["per_num"][num_result].append((wlon, wlat))
-                print(
-                    f"[INFO] well={idx} num={num_result} "
-                    f"conf={result_conf:.3f} "
-                    f"left={digit_confs[0]:.3f} right={digit_confs[1]:.3f}"
-                )
-
-                if SAVE_NUM_SNAPS and save_dir_exp is not None:
-                    try:
-                        num_dir = save_dir_exp / str(num_result)
-                        num_dir.mkdir(parents=True, exist_ok=True)
-                        cv2.imwrite(
-                            str(num_dir / f"{num_of_save}_{idx}_plate.jpg"),
-                            crop_img
-                        )
-                        num_of_save += 1
-                    except Exception as exc:
-                        print(f"[WARN] save snaps failed: {exc}")
-
-        torch.cuda.empty_cache()
+        t_total = time.time() - t0
+        if t_total > 0.05:  # only log slow frames (>150ms)
+            print(f"[TIMING] frame total={t_total*1000:.0f}ms "
+                  f"pose={((t1-t0)*1000):.0f}ms "
+                  f"cut={((t2-t1)*1000):.0f}ms "
+                  f"wells={n_wells} "
+                  f"gps={(t_gps_total*1000):.0f}ms "
+                  f"cls={(t_cls_total*1000):.0f}ms")
 
 def main():
 
@@ -817,9 +926,11 @@ def main():
     global TARGET_LON
     global SEND_WP
 
-    global running
+    global other_thread_running, camera_running
 
     signal.signal(signal.SIGUSR1, shutdown_handler)
+
+    global gps_pub, yoloresult_pub
 
     # ROS初始化
     rospy.init_node("pic_detect_node", anonymous=True)
@@ -827,6 +938,10 @@ def main():
     rospy.Subscriber("/mavros/global_position/global", NavSatFix, gps_cb)
     rospy.Subscriber("/mavros/local_position/pose", PoseStamped, pose_cb)
     rospy.Subscriber("/mavros/mission/reached", WaypointReached, wp_cb)
+
+    # 替代 receive_gps.cpp：直接发布检测结果到 ROS topic
+    gps_pub = rospy.Publisher("gps", GpsMsg, queue_size=1)
+    yoloresult_pub = rospy.Publisher("yoloresults", yoloresults, queue_size=1)
 
     # 配置文件
     config=load_config()
@@ -844,35 +959,58 @@ def main():
 
     print("[INFO] ground_test:", GROUND_TEST)
 
+    # 地面测试
+    if GROUND_TEST:
+        send_gps_via_ros(TARGET_LAT, TARGET_LON)
+        print("[INFO] send on the ground")
+        return
+
     # 存储文件夹创建
     init_dirs()
 
-    # 加载整帧关键点模型和两位数字 CNN
-    print("[INFO] loading pose model and digit CNN...")
-    pose=YOLO(str(PROJECT_DIR / "step1_0717_960.pt"))
-    pose.fuse()
-    try:
-        pose.model.half()
-    except Exception:
-        pass
+    # 清空上次运行的旧数据
+    clean_dirs()
 
-    digit_model = DigitRecognizer(
-        digit_model_path,
-        device="cuda",
-        split_gap=digit_split_gap,
-        left_confidence=digit_left_conf,
-        right_confidence=digit_right_conf
-    )
+    # 加载模型
+    print("[INFO] loading models...")
+    if USE_TRT_POSE:
+        print(f"[INFO] loading TensorRT pose engine: {POSE_ENGINE_PATH}")
+        det = TensorRTWrapper(
+            engine_path=POSE_ENGINE_PATH,
+            lib_path=TRT_LIB_PATH,
+            num_classes=1,
+            num_keypoints=5,
+            apply_sigmoid=False  # engine outputs already-decoded values
+        )
+    else:
+        if YOLO is None:
+            raise RuntimeError("ultralytics is required when TensorRT pose is disabled")
+        det = YOLO("weights/step1_0717_960.pt")
+
+    if USE_TRT_CLS:
+        print(f"[INFO] loading TensorRT cls engine: {CLS_ENGINE_PATH}")
+        cls = TensorRTWrapper(
+            engine_path=CLS_ENGINE_PATH,
+            lib_path=TRT_LIB_PATH,
+            num_classes=12,
+            num_keypoints=0,
+            apply_sigmoid=False  # engine outputs already-decoded values
+        )
+    else:
+        if YOLO is None:
+            raise RuntimeError("ultralytics is required when TensorRT cls is disabled")
+        cls = YOLO("weights/round1_0720.pt")
+
+    if hasattr(det, "fuse"):
+        det.fuse()
+    if hasattr(cls, "fuse"):
+        cls.fuse()
     # 模型预热
     dummy=np.zeros((well_imgsz,well_imgsz,3), dtype=np.uint8)
-    pose.predict(
-        dummy,
-        imgsz=well_imgsz,
-        conf=well_conf,
-        device=0,
-        half=True,
-        verbose=False
-    )
+    det.predict(dummy, imgsz=well_imgsz, conf=well_conf, iou=well_iou, batch=1, device=0, verbose=False)
+
+    dummy=np.zeros((pic_imgsz,pic_imgsz,3), dtype=np.uint8)
+    cls.predict(dummy, imgsz=pic_imgsz, conf=pic_conf, iou=trt_iou, batch=1, device=0, verbose=False)
 
     # 摄像头
     pipeline=gstreamer_pipeline()
@@ -893,39 +1031,56 @@ def main():
     # 启动线程，主程序结束后强制关闭
     t_camera=threading.Thread(target=camera_thread, args=(cap,), daemon=True)
     t_save=threading.Thread(target=save_thread, daemon=True)
-    t_infer=threading.Thread(
-        target=infer_thread,
-        args=(pose, digit_model),
-        daemon=True
-    )
+    t_crop_save=threading.Thread(target=crop_save_thread, daemon=True)
+    t_infer=threading.Thread(target=infer_thread, args=(det,cls), daemon=True)
 
     t_camera.start()
     t_save.start()
-    t_infer.start()
+    t_crop_save.start()
+    #t_infer.start()
 
     try:
-        while (running and not rospy.is_shutdown() and  current_wp < SEND_WP):
+        while (other_thread_running and not rospy.is_shutdown() and  current_wp < SEND_WP):
             rospy.sleep(0.1)
 
     except KeyboardInterrupt:
         pass
 
     # 结束侦察，停止摄像头入队，排空剩余推理与保存任务
-    running=False
+    other_thread_running=False
     t_infer.join()
 
     # 发送解算结果
     print("[INFO] choosing target...")
-    choose_and_send()
+    choose_and_send_gps_via_ros(cls)
 
+    #t_camera.join(timeout=2)
+    #t_save.join()
+    t_crop_save.join()
+
+
+    
+    # 释放摄像头 临时添加：持续拍摄
+    while(not rospy.is_shutdown()):
+        if not t_camera.is_alive():  
+            print("[ERROR] camera thread unexpected stoppped")
+        else :
+            print("camera thread is alive")
+            rospy.sleep(0.5)
+    
+    camera_running = False
     t_camera.join(timeout=2)
-    t_save.join()
-
     # 释放摄像头
     if cap.pipeline is not None:
         cap.release()
 
+    t_save.join()
+
     cv2.destroyAllWindows()
+    if hasattr(det, "close"):
+        det.close()
+    if hasattr(cls, "close"):
+        cls.close()
     print("[INFO] exit")
 
 if __name__=="__main__":

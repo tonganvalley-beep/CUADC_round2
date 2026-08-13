@@ -772,7 +772,7 @@ def camera_thread(cap):
             print(f"dis={distance}")
             DIS_SHOW = False
 
-        if (other_thread_running and (distance < dis_lim and now_alt > 10) ) or GROUND_TEST:
+        if (camera_running and (distance < dis_lim and now_alt > 10) ) or GROUND_TEST:
 
             if exposure_controller is not None:
                 exposure_controller.observe_frame(frame)
@@ -783,21 +783,23 @@ def camera_thread(cap):
             data = FrameData(frame, info, frame_id)
 
             # 保存队列
-            with save_queue_lock:
-                if len(save_queue) >= SAVE_QUEUE_MAX:
-                    save_queue.popleft()
-                save_queue.append(data)
+            if (camera_running):
+                with save_queue_lock:
+                    if len(save_queue) >= SAVE_QUEUE_MAX:
+                        save_queue.popleft()
+                    save_queue.append(data)
 
             # 推理队列
-            with queue_lock:
-                if len(task_queue) >= QUEUE_MAX:
-                    task_queue.popleft()
-                    print("infer too slow")
-                task_queue.append(data)
+            if (other_thread_running):
+                with queue_lock:
+                    if len(task_queue) >= QUEUE_MAX:
+                        task_queue.popleft()
+                        print("infer too slow")
+                    task_queue.append(data)
         
 def save_thread():
-
-    while other_thread_running or save_queue:
+    #持续拍摄修正 添加camera_running
+    while camera_running or other_thread_running or save_queue:
 
         data=None
 
@@ -1086,7 +1088,7 @@ def main():
     choose_and_send_gps_via_ros(cls)
 
     #t_camera.join(timeout=2) 
-    t_save.join()
+    #t_save.join()
     t_crop_save.join()
 
     # 释放摄像头 临时添加：持续拍摄
@@ -1101,6 +1103,8 @@ def main():
     t_camera.join(timeout=2)
     if cap.pipeline is not None:
         cap.release()
+
+    t_save.join()
 
     cv2.destroyAllWindows()
     if hasattr(det, "close"):

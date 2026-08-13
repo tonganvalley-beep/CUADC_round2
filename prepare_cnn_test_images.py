@@ -9,7 +9,6 @@ import os
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 from digit_recognizer import DigitRecognizer
 
@@ -77,6 +76,8 @@ def main():
     parser.add_argument("--expand", type=float, default=3.0)
     parser.add_argument("--output", default="cnn_test_prepared")
     parser.add_argument("--device", default="0")
+    parser.add_argument("--already-cropped", action="store_true",
+                        help="inputs are already cropped two-digit plates")
     args = parser.parse_args()
 
     paths = collect_images(args.inputs)
@@ -85,6 +86,29 @@ def main():
     for folder in ("visualized", "warp_color", "plate_binary"):
         os.makedirs(os.path.join(args.output, folder), exist_ok=True)
 
+    if args.already_cropped:
+        total = 0
+        for path in paths:
+            image = read_image(path)
+            if image is None:
+                print("UNREADABLE {}".format(path))
+                continue
+            stem = os.path.splitext(os.path.basename(path))[0]
+            parent = os.path.basename(os.path.dirname(path))
+            if parent.lower() == "send_to_ground":
+                parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
+            source_name = "{}_{}".format(parent, stem)
+            color = cv2.resize(image, (100, 100), interpolation=cv2.INTER_AREA)
+            binary = DigitRecognizer.binarize_plate(color)
+            write_image(os.path.join(args.output, "warp_color", source_name + ".jpg"), color)
+            write_image(os.path.join(args.output, "plate_binary", source_name + ".png"), binary)
+            total += 1
+            print("SAVED {}".format(source_name))
+        print("summary: source_images={} plates={} output={}".format(
+            len(paths), total, os.path.abspath(args.output)))
+        return
+
+    from ultralytics import YOLO
     model = YOLO(args.model)
     results = model.predict(paths, imgsz=args.imgsz, conf=args.conf,
                             device=args.device, verbose=False)
@@ -92,7 +116,11 @@ def main():
     destination = np.float32([[0, 0], [100, 0], [100, 100], [0, 100]])
     for path, result in zip(paths, results):
         stem = os.path.splitext(os.path.basename(path))[0]
-        write_image(os.path.join(args.output, "visualized", stem + ".jpg"), result.plot())
+        parent = os.path.basename(os.path.dirname(path))
+        if parent.lower() == "selected_pic":
+            parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        source_name = "{}_{}".format(parent, stem)
+        write_image(os.path.join(args.output, "visualized", source_name + ".jpg"), result.plot())
         if result.keypoints is None:
             print("NO_KEYPOINTS {}".format(path))
             continue
@@ -108,7 +136,7 @@ def main():
                                         borderMode=cv2.BORDER_CONSTANT,
                                         borderValue=(255, 255, 255))
             binary = DigitRecognizer.binarize_plate(color)
-            name = "{}_{}".format(stem, obj_index)
+            name = "{}_{}".format(source_name, obj_index)
             write_image(os.path.join(args.output, "warp_color", name + ".jpg"), color)
             write_image(os.path.join(args.output, "plate_binary", name + ".png"), binary)
             total += 1
