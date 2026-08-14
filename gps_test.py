@@ -13,20 +13,20 @@ cell_width = 0.899
 cell_height = 0.473
 scale_gps = 1.0
 
-fx=1488.57046
-cx=923.64740
-fy=1489.12759
-cy=558.47729
-k1 = -0.09335156
-k2 =  0.15173118
-p1 = -0.00051328
-p2 = -0.00212067
-k3 = -0.10798687
+fx=2726.575028744192423
+cx=928.327607790873003
+fy=2727.167466485869227
+cy=565.145908375505314
+k1 = 0.08992784064861
+k2 = 1.106881115498932
+p1 = 0.000511898824711
+p2 = 0.000987814578193
+k3 = -9.232783177431058
 DEG2RAD = np.pi / 180.0
 RAD2DEG = 180.0 / np.pi
 EARTH_RADIUS = 6378137.0  # WGS84
-TARGET_LAT = 33.9487955
-TARGET_LON = 117.1773623
+TARGET_LAT = 33.9487857
+TARGET_LON = 117.1774021
 
 def read_info(info_path):
     """读取 lon、lat、alt、pitch、yaw、roll；姿态角单位为弧度。"""
@@ -35,14 +35,15 @@ def read_info(info_path):
     except (OSError, ValueError) as exc:
         raise ValueError(f"无法读取信息文件 {info_path}: {exc}") from exc
 
-    if len(values) != 6:
+    if len(values) < 6:
         raise ValueError(
-            f"信息文件 {info_path} 应包含 6 个数值，实际读取到 {len(values)} 个"
+            f"信息文件 {info_path} 至少应包含 6 个数值，实际读取到 {len(values)} 个"
         )
-    if not all(math.isfinite(value) for value in values):
+    coordinate_values = values[:6]
+    if not all(math.isfinite(value) for value in coordinate_values):
         raise ValueError(f"信息文件 {info_path} 包含非有限数值")
 
-    return tuple(values)
+    return tuple(coordinate_values)
 
 
 def read_image(image_path):
@@ -133,7 +134,7 @@ def pixel_to_gps(u, v, lon0, lat0, rel_alt, pitch, yaw, roll=0.0):
     # MAVROS local_position/pose为ENU约定，转换为NED/FRD约定。
     yaw_ned = math.pi / 2.0 - yaw
     pitch_ned = -pitch
-    roll_ned = roll  # 云台已拆除，使用TXT中的机体滚转角。
+    roll_ned = 0.0  # 云台补偿滚转，TXT中的机体roll不参与解算。
 
     body_to_ned = R.from_euler(
         'ZYX', [yaw_ned, pitch_ned, roll_ned]
@@ -204,7 +205,7 @@ def get_pixel_points(img):
     return list(clicked_points), window_action
 
 def main():
-    data_dir = Path(__file__).resolve().parent / "pic_09"
+    data_dir = Path(__file__).resolve().parent / "pic_19"    
     img_dir = data_dir / "selected_pic"
     info_dir = data_dir / "info_to_ground"
 
