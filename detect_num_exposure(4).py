@@ -45,6 +45,7 @@ from scipy.spatial.transform import Rotation as R
 import rospy
 from sensor_msgs.msg import NavSatFix
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float64
 from mavros_msgs.msg import WaypointReached
 from tf.transformations import euler_from_quaternion
 
@@ -55,12 +56,12 @@ from test.msg import gps as GpsMsg, yoloresults
 # 参数配置
 
 # 距离限制
-dis_lim = 50
+dis_lim = 300
 DIS_SHOW = True
 
 # 摄像头
 FPS = int(os.getenv("CAMERA_FPS", "7"))  # 实测飞行使用 7~8 fps，可覆盖为 8
-_initial_exposure_ns = int(os.getenv("CAMERA_EXPOSURE_INITIAL_NS", "5000000"))
+_initial_exposure_ns = int(os.getenv("CAMERA_EXPOSURE_INITIAL_NS", "500000"))
 exptr = f"{_initial_exposure_ns} {_initial_exposure_ns}"   # 曝光时长
 ENABLE_EXPOSURE = True
 ENABLE_FRAME_EXPOSURE = os.getenv("CAMERA_EXPOSURE_USE_FRAME", "0") == "1"
@@ -100,22 +101,23 @@ SAVE_QUEUE_MAX=12
 digit_left_conf = 0.45
 digit_right_conf = 0.60
 digit_split_gap = 3
-digit_model_path = "/home/tx2/ultralytics-main/weights/digit_cnn_degrade_v5.ts"
+digit_model_path = "/home/tx2/ultralytics-main/weights/digit_cnn_v5_pic10_11_finetune.ts"
+
 WELL_KPT_CONF = 0.35            # 关键点置信度阈值，低于该值的天井不进行裁剪
 WELL_SIDE_MIN = 10.0            # 四边形每边的最小长度
 WELL_AREA_MIN = 100.0           # 四边形面积最小值
 WELL_PARALLEL_TOL_DEG = 20.0    # 四边形对边平行度容差，单位：度
 
 # 坐标解算参数
-fx = 1487.0237
-fy = 1486.9391
-cx = 981.5314
-cy = 497.8651
-k1 = -0.092534
-k2 = 0.105996
-p1 = 0.001179
-p2 = -0.001208
-k3 = 0.001222
+fx = 2726.575029
+fy = 2727.167466
+cx = 928.327608
+cy = 565.145908
+k1 = 0.08992784
+k2 = 1.10688112
+p1 = 0.00051190
+p2 = 0.00098781
+k3 = -9.23278318
 DEG2RAD = np.pi / 180.0
 RAD2DEG = 180.0 / np.pi
 EARTH_RADIUS = 6378137.0  # WGS84
@@ -136,7 +138,7 @@ img_rows = 1080
 raw_path = "/home/tx2/Wintter/raw_pic"
 info_path = "/home/tx2/Wintter/info_to_ground"
 folder_cut = "/home/tx2/Wintter/send_to_ground"
-runs_root = Path("runs/detect_well/exp")
+runs_root = Path("runs/detect_num/exp")
 
 SAVE_CROPS = True           # 是否存储裁剪下来的天井
 SAVE_NUM_SNAPS = True       # 是否按识别数字存储透视矫正图
@@ -160,12 +162,6 @@ plane_pitch = 0.0
 plane_yaw = 0.0
 plane_roll = 0.0
 current_wp = -1
-
-# 高度初始化
-alt_takeoff = 0
-takeoff_set = False
-alt_sum = 0
-alt_count = 0
 
 # 多线程
 task_queue = deque()
@@ -341,32 +337,21 @@ def pose_cb(msg):
     global plane_roll
     global plane_pitch
     global plane_yaw
-    global plane_alt
-
-    global alt_takeoff
-    global takeoff_set
-    global alt_sum
-    global alt_count
 
     q = msg.pose.orientation
     quat=[q.x, q.y, q.z, q.w]
 
-    alt_now=msg.pose.position.z
 
     with state_lock:
 
         plane_roll,plane_pitch,plane_yaw=euler_from_quaternion(quat)
 
-        if not takeoff_set:
-            alt_sum += alt_now
-            alt_count += 1
+def rel_alt_cb(msg):
 
-            if alt_count>=50:
-                alt_takeoff=alt_sum/alt_count
-                takeoff_set=True
+    global plane_alt
 
-        else:
-            plane_alt=alt_now-alt_takeoff
+    with state_lock:
+        plane_alt = msg.data
 
 def wp_cb(msg):
 
@@ -427,52 +412,64 @@ def dis(lon1,lat1,lon2,lat2):
 # 坐标解算
 def get_well_gps(u, v, lon0, lat0, rel_alt, pitch, yaw, roll = 0.0):
 
-    pts_dist = np.array([[[u, v]]], dtype=np.float64)
-
-    # 修正相机畸变
-    pts_undist = cv2.undistortPoints(pts_dist, K, D)
-
-    x = pts_undist[0, 0, 0]
-    y = pts_undist[0, 0, 1]
-
-    # 相机坐标系射线
-    r_cam = np.array([x, y, 1.0])
-    r_cam = r_cam / np.linalg.norm(r_cam)
-
-    # 相机 → 机体系（相机朝正下方）
-    # 机体系: X前 Y右 Z下
-    r_body = np.array([
-        r_cam[1],  # 前
-        r_cam[0],  # 右
-        r_cam[2]  # 下
-    ])
-    r_body = r_body / np.linalg.norm(r_body)
-
-    # 姿态旋转（机体系 → NED），yaw(Z) pitch(Y) roll(X)
-    rot = R.from_euler('ZYX', [yaw, pitch, roll])
-    R_mat = rot.as_matrix()
-
-    r_ned = R_mat @ r_body
-
-    rN, rE, rD = r_ned
-
-    # 防止看向地平线
-    if abs(rD) < 1e-6:
-        print("Ray is parallel to ground, no intersection.")
-        return None
-
-    # 射线与地面交点，飞机在 (0,0,-rel_alt)
-    t = rel_alt / rD
-
-    north = t * rN
-    east  = t * rE
-    # print(f"north, east are {north}, {east} respectively.")
-
-    # 经纬度
-    lat = lat0 + (north / EARTH_RADIUS) * RAD2DEG
-    lon = lon0 + (east / (EARTH_RADIUS * np.cos(lat0 * DEG2RAD))) * RAD2DEG
-
-    return lon, lat
+     # 相机内参与畸变参数
+        K = np.array([
+            [fx, 0.0, cx],
+            [0.0, fy, cy],
+            [0.0, 0.0, 1.0]
+        ], dtype=np.float64)
+    
+        D = np.array([k1, k2, p1, p2, k3], dtype=np.float64)
+    
+        # 去畸变，得到归一化相机坐标。
+        distorted_point = np.array([[[u, v]]], dtype=np.float64)
+        undistorted_point = cv2.undistortPoints(distorted_point, K, D)
+        x_cam, y_cam = undistorted_point[0, 0]
+    
+        # OpenCV相机坐标：X向右、Y向下、Z沿镜头光轴。
+        ray_camera = np.array([x_cam, y_cam, 1.0], dtype=np.float64)
+        ray_camera /= np.linalg.norm(ray_camera)
+    
+        # 相机坐标 -> 机体FRD坐标：X向前、Y向右、Z向下。
+        # 图像上方对应机头前方，所以 forward = -camera_y。
+        ray_body = np.array([
+            -ray_camera[1],
+             ray_camera[0],
+             ray_camera[2]
+        ], dtype=np.float64)
+        ray_body /= np.linalg.norm(ray_body)
+    
+        # TXT姿态来自ENU约定，将其转换为NED/FRD约定。
+        yaw_ned = math.pi / 2.0 - yaw
+        pitch_ned = -pitch
+    
+        # 云台补偿滚转；不使用TXT中的机体roll。
+        roll_ned = 0.0
+    
+        body_to_ned = R.from_euler(
+            'ZYX',
+            [yaw_ned, pitch_ned, roll_ned]
+        ).as_matrix()
+    
+        ray_ned = body_to_ned @ ray_body
+        ray_north, ray_east, ray_down = ray_ned
+    
+        # 射线必须朝向地面。
+        if ray_down <= 1e-8:
+            return None
+    
+        # 飞机位于地面上方rel_alt米；在NED中地面交点的Down=rel_alt。
+        scale = rel_alt / ray_down
+        north = scale * ray_north
+        east = scale * ray_east
+    
+        # 局部东北方向距离转换为WGS84经纬度。
+        lat = lat0 + (north / EARTH_RADIUS) * RAD2DEG
+        lon = lon0 + (
+            east / (EARTH_RADIUS * math.cos(lat0 * DEG2RAD))
+        ) * RAD2DEG
+    
+        return lon, lat
 
 def is_angle_greater_than_180_counterclockwise(p1, p2, p3):
 
@@ -621,7 +618,7 @@ def cut_from_boxes(img, results):
     return out
 
 # wells管理
-def update_wells(new_lon, new_lat, dis_same_well=10, dis_dfrt_well=10):
+def update_wells(new_lon, new_lat, dis_same_well=3, dis_dfrt_well=4):
 
     global wells
 
@@ -777,12 +774,9 @@ def camera_thread(cap):
 
     while camera_running and not rospy.is_shutdown():
 
-        # 先应用待处理曝光，再拉取下一帧。调整成功后丢弃尚未推理的旧曝光帧。
+        # 应用待处理曝光
         if exposure_controller is not None:
-            applied = exposure_controller.apply_pending(cap)
-            if applied is not None:
-                with queue_lock:
-                    task_queue.clear()
+            exposure_controller.apply_pending(cap)
 
         # 获取图像
         ret, frame = cap.read()
@@ -792,7 +786,7 @@ def camera_thread(cap):
             continue
 
         captured_at = time.monotonic()
-        # 记录本帧对应的曝光时间与曝光代次；它们不是摄像头 ID。
+        # 记录本帧对应的曝光时间与曝光代次
         exposure_fallback = (
             exposure_controller.current_exposure_ns
             if exposure_controller is not None
@@ -890,7 +884,7 @@ def infer_thread(pose, digit_model):
     while other_thread_running or task_queue:
 
         data = None
-
+        
         with queue_lock:
             if task_queue:
                 data = task_queue.popleft()
@@ -991,7 +985,7 @@ def infer_thread(pose, digit_model):
                 num_of_save += 1
 
         t_total = time.time() - t0
-        if t_total > 0.15:  # only log slow frames (>150ms)
+        if t_total > 0.05:  # only log slow frames (>150ms)
             print(f"[TIMING] frame total={t_total*1000:.0f}ms "
                   f"pose={((t1-t0)*1000):.0f}ms "
                   f"cut={((t2-t1)*1000):.0f}ms "
@@ -1019,9 +1013,10 @@ def main():
 
     rospy.Subscriber("/mavros/global_position/global", NavSatFix, gps_cb)
     rospy.Subscriber("/mavros/local_position/pose", PoseStamped, pose_cb)
+    rospy.Subscriber("/mavros/global_position/rel_alt", Float64, rel_alt_cb)
     rospy.Subscriber("/mavros/mission/reached", WaypointReached, wp_cb)
 
-    # 替代 receive_gps.cpp：直接发布检测结果到 ROS topic
+    # 直接发布检测结果到 ROS topic
     gps_pub = rospy.Publisher("gps", GpsMsg, queue_size=1)
     yoloresult_pub = rospy.Publisher("yoloresults", yoloresults, queue_size=1)
 
@@ -1068,7 +1063,7 @@ def main():
     else:
         if YOLO is None:
             raise RuntimeError("ultralytics is required when TensorRT pose is disabled")
-        det = YOLO("weights/step1_0717_960.pt")
+        det = YOLO("weights/step1_0724.pt")
 
     digit_model = DigitRecognizer(
         digit_model_path,

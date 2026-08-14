@@ -74,6 +74,8 @@ def main():
     parser.add_argument("--conf", type=float, default=0.60)
     parser.add_argument("--kpt-conf", type=float, default=0.25)
     parser.add_argument("--expand", type=float, default=3.0)
+    parser.add_argument("--split-gap", type=int, default=3,
+                        help="center pixels omitted per side before independent Otsu")
     parser.add_argument("--output", default="cnn_test_prepared")
     parser.add_argument("--device", default="0")
     parser.add_argument("--already-cropped", action="store_true",
@@ -99,7 +101,7 @@ def main():
                 parent = os.path.basename(os.path.dirname(os.path.dirname(path)))
             source_name = "{}_{}".format(parent, stem)
             color = cv2.resize(image, (100, 100), interpolation=cv2.INTER_AREA)
-            binary = DigitRecognizer.binarize_plate(color)
+            binary = DigitRecognizer.binarize_plate(color, args.split_gap)
             write_image(os.path.join(args.output, "warp_color", source_name + ".jpg"), color)
             write_image(os.path.join(args.output, "plate_binary", source_name + ".png"), binary)
             total += 1
@@ -135,7 +137,7 @@ def main():
             color = cv2.warpPerspective(image, matrix, (100, 100),
                                         borderMode=cv2.BORDER_CONSTANT,
                                         borderValue=(255, 255, 255))
-            binary = DigitRecognizer.binarize_plate(color)
+            binary = DigitRecognizer.binarize_plate(color, args.split_gap)
             name = "{}_{}".format(source_name, obj_index)
             write_image(os.path.join(args.output, "warp_color", name + ".jpg"), color)
             write_image(os.path.join(args.output, "plate_binary", name + ".png"), binary)

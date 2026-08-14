@@ -1,0 +1,26 @@
+{
+  "input_size": [
+    1,
+    32,
+    32
+  ],
+  "normalization": "(x/255-0.5)/0.5",
+  "train_plates": 540,
+  "validation_plates": 60,
+  "test_plates": 158,
+  "extra_train_plates": 21,
+  "extra_validation_plates": 5,
+  "extra_repeat": 2,
+  "extra_digit_repeats": {},
+  "extra_validation_metrics": {
+    "left_accuracy": 1.0,
+    "right_accuracy": 1.0,
+    "plate_accuracy": 1.0
+  },
+  "single_validation_samples": 0,
+  "single_test_samples": 0,
+  "single_test_accuracy": null,
+  "left_accuracy": 0.9873417721518988,
+  "right_accuracy": 0.9873417721518988,
+  "plate_accuracy": 0.9746835443037974
+}

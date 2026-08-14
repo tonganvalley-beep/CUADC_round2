@@ -5,6 +5,7 @@
 # 把这个 Gst appsink 再改成 零拷贝 NVMM → CUDA TensorRT
 # 改变曝光的函数 cap.set_exposure("10000000 10000000")
 # save_thread 和 infer_thread 都读同一个 numpy.ndarray，不要在任何一个线程里面修改 data.img
+#相机持续拍摄，复原方法：注释“相机释放”那一篇注释的while循环，然后camera_running=False更改到infer.join()前面，前面不用改
 import cv2
 import numpy as np
 import math
@@ -25,9 +26,11 @@ except ImportError:
     YOLO = None
 
 from trt_wrapper import TensorRTWrapper
-from digit_recognizer import DigitRecognizer
 try:
-    from exposure_controller import ExposureConfig, ExposureController
+    # This detector converts every crop to grayscale before classification, so
+    # use its dedicated grayscale-only exposure rule instead of the shared
+    # color/Otsu controller.
+    from well_gray_exposure_controller import ExposureConfig, ExposureController
     _exposure_import_error = None
 except Exception as exc:
     # 曝光模块缺失或加载失败时，只关闭曝光功能，不影响主体检测流程。
@@ -45,6 +48,7 @@ from scipy.spatial.transform import Rotation as R
 import rospy
 from sensor_msgs.msg import NavSatFix
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float64
 from mavros_msgs.msg import WaypointReached
 from tf.transformations import euler_from_quaternion
 
@@ -55,12 +59,12 @@ from test.msg import gps as GpsMsg, yoloresults
 # 参数配置
 
 # 距离限制
-dis_lim = 50
+dis_lim = 300
 DIS_SHOW = True
 
 # 摄像头
 FPS = int(os.getenv("CAMERA_FPS", "7"))  # 实测飞行使用 7~8 fps，可覆盖为 8
-_initial_exposure_ns = int(os.getenv("CAMERA_EXPOSURE_INITIAL_NS", "5000000"))
+_initial_exposure_ns = int(os.getenv("CAMERA_EXPOSURE_INITIAL_NS", "500000"))
 exptr = f"{_initial_exposure_ns} {_initial_exposure_ns}"   # 曝光时长
 ENABLE_EXPOSURE = True
 ENABLE_FRAME_EXPOSURE = os.getenv("CAMERA_EXPOSURE_USE_FRAME", "0") == "1"
@@ -78,8 +82,6 @@ else:
     print("[EXPOSURE] disabled by ENABLE_EXPOSURE=0")
 
 # 读取参数
-PROJECT_DIR = Path(__file__).resolve().parent
-
 GROUND_TEST = False
 SCOUT_LAT = 39.5861817
 SCOUT_LON = 116.1997466
@@ -88,19 +90,18 @@ TARGET_LON = 116.1997466
 SEND_WP = 9
 
 # YOLO参数
-well_imgsz = 640        # 第一阶段关键点识别图片尺寸
-well_conf = 0.6         # 第一阶段关键点识别置信度
-well_iou = 0.45         # 第一阶段NMS IoU
+well_imgsz = 640        # 第一轮关键点识别图片尺寸
+pic_imgsz = 224         # 第二轮识别图片尺寸
+
+well_conf = 0.6         # 第一轮关键点识别置信度
+pic_conf = 0.75         # 第二轮识别置信度
+well_iou = 0.45         # 第一轮NMS IoU
+trt_iou = 0.45          # TensorRT分类阶段NMS IoU
 
 QUEUE_MAX = 12
 BATCH_SIZE = 1
+CLS_BATCH = 1
 SAVE_QUEUE_MAX=12
-
-# 数字识别参数
-digit_left_conf = 0.45
-digit_right_conf = 0.60
-digit_split_gap = 3
-digit_model_path = "/home/tx2/ultralytics-main/weights/digit_cnn_degrade_v5.ts"
 WELL_KPT_CONF = 0.35            # 关键点置信度阈值，低于该值的天井不进行裁剪
 WELL_SIDE_MIN = 10.0            # 四边形每边的最小长度
 WELL_AREA_MIN = 100.0           # 四边形面积最小值
@@ -139,12 +140,16 @@ folder_cut = "/home/tx2/Wintter/send_to_ground"
 runs_root = Path("runs/detect_well/exp")
 
 SAVE_CROPS = True           # 是否存储裁剪下来的天井
-SAVE_NUM_SNAPS = True       # 是否按识别数字存储透视矫正图
+SAVE_WELL_SNAPS = True      # 是否存储识别过程中裁剪的部分
 
 # 是否启用TensorRT第一阶段推理，默认开启
 USE_TRT_POSE = os.getenv("DETECT_WELL_USE_TRT_POSE", "1") == "1"
+# 是否启用TensorRT分类推理，默认开启
+USE_TRT_CLS = os.getenv("DETECT_WELL_USE_TRT_CLS", "1") == "1"
 # TRT第一阶段引擎文件路径，默认weights/step1_0717_640.engine
-POSE_ENGINE_PATH = os.getenv("DETECT_WELL_POSE_ENGINE", "weights/step1_0717_640.engine")
+POSE_ENGINE_PATH = os.getenv("DETECT_WELL_POSE_ENGINE", "weights/step1_0724.engine")
+# TRT分类引擎文件路径，默认weights/round1_0720.engine
+CLS_ENGINE_PATH = os.getenv("DETECT_WELL_CLS_ENGINE", "weights/round1_0720.engine")
 # TRT底层封装动态库路径，默认当前目录trt_wrapper下的libtrt_wrapper.so
 TRT_LIB_PATH = os.getenv("DETECT_WELL_TRT_LIB", "./trt_wrapper/libtrt_wrapper.so")
 
@@ -160,12 +165,6 @@ plane_pitch = 0.0
 plane_yaw = 0.0
 plane_roll = 0.0
 current_wp = -1
-
-# 高度初始化
-alt_takeoff = 0
-takeoff_set = False
-alt_sum = 0
-alt_count = 0
 
 # 多线程
 task_queue = deque()
@@ -183,7 +182,6 @@ CROP_SAVE_MAX = 256
 # 状态锁
 state_lock = threading.Lock()
 
-# 推理线程和相机/保存线程分开控制：推理完成后仍可继续拍照保存。
 other_thread_running = True
 camera_running = True
 
@@ -203,8 +201,8 @@ class FrameData:
         self.img = img
         self.info = info
         self.frame_id = frame_id
-        # 保存线程是异步的，因此曝光时间必须和对应帧一起入队，不能在
-        # 保存 TXT 时再读取相机（那时相机曝光值可能已经发生变化）。
+        # Keep the capture-time exposure attached to this frame.  The save
+        # thread is asynchronous and must not read a newer camera setting.
         self.exposure_ns = int(exposure_ns)
         self.captured_at = captured_at
         self.exposure_generation = exposure_generation
@@ -243,7 +241,7 @@ class GstCamera:
         self.camera.set_property("exposuretimerange",exp)
 
     def get_exposure_ns(self, fallback):
-        """读取当前拍摄曝光时间；相机不支持读取时使用控制器记录值。"""
+        """Return the exposure configured when the next frame is pulled."""
         try:
             value = self.camera.get_property("exposuretimerange")
             numbers = str(value).replace('"', '').split()
@@ -307,7 +305,7 @@ def init_dirs():
     if SAVE_CROPS:
         os.makedirs(folder_cut, exist_ok=True)
     # 识别过程截取图片保存路径
-    if SAVE_NUM_SNAPS:
+    if SAVE_WELL_SNAPS:
         save_dir_exp = increment_path(runs_root)
         save_dir_exp.mkdir(parents=True, exist_ok=True)
 
@@ -341,32 +339,19 @@ def pose_cb(msg):
     global plane_roll
     global plane_pitch
     global plane_yaw
-    global plane_alt
-
-    global alt_takeoff
-    global takeoff_set
-    global alt_sum
-    global alt_count
 
     q = msg.pose.orientation
     quat=[q.x, q.y, q.z, q.w]
 
-    alt_now=msg.pose.position.z
-
     with state_lock:
-
         plane_roll,plane_pitch,plane_yaw=euler_from_quaternion(quat)
 
-        if not takeoff_set:
-            alt_sum += alt_now
-            alt_count += 1
+def rel_alt_cb(msg):
 
-            if alt_count>=50:
-                alt_takeoff=alt_sum/alt_count
-                takeoff_set=True
+    global plane_alt
 
-        else:
-            plane_alt=alt_now-alt_takeoff
+    with state_lock:
+        plane_alt = msg.data
 
 def wp_cb(msg):
 
@@ -425,54 +410,66 @@ def dis(lon1,lat1,lon2,lat2):
     return math.sqrt(((lon1-lon2)*mlon)**2 + ((lat1-lat2)*mlat)**2)
 
 # 坐标解算
-def get_well_gps(u, v, lon0, lat0, rel_alt, pitch, yaw, roll = 0.0):
+def get_well_gps(u, v, lon0, lat0, rel_alt, pitch, yaw, roll=0.0):
+    # 相机内参与畸变参数
+    K = np.array([
+        [fx, 0.0, cx],
+        [0.0, fy, cy],
+        [0.0, 0.0, 1.0]
+    ], dtype=np.float64)
 
-    pts_dist = np.array([[[u, v]]], dtype=np.float64)
+    D = np.array([k1, k2, p1, p2, k3], dtype=np.float64)
 
-    # 修正相机畸变
-    pts_undist = cv2.undistortPoints(pts_dist, K, D)
+    # 去畸变，得到归一化相机坐标。
+    distorted_point = np.array([[[u, v]]], dtype=np.float64)
+    undistorted_point = cv2.undistortPoints(distorted_point, K, D)
+    x_cam, y_cam = undistorted_point[0, 0]
 
-    x = pts_undist[0, 0, 0]
-    y = pts_undist[0, 0, 1]
+    # OpenCV相机坐标：X向右、Y向下、Z沿镜头光轴。
+    ray_camera = np.array([x_cam, y_cam, 1.0], dtype=np.float64)
+    ray_camera /= np.linalg.norm(ray_camera)
 
-    # 相机坐标系射线
-    r_cam = np.array([x, y, 1.0])
-    r_cam = r_cam / np.linalg.norm(r_cam)
+    # 相机坐标 -> 机体FRD坐标：X向前、Y向右、Z向下。
+    # 图像上方对应机头前方，所以 forward = -camera_y。
+    ray_body = np.array([
+        -ray_camera[1],
+         ray_camera[0],
+         ray_camera[2]
+    ], dtype=np.float64)
+    ray_body /= np.linalg.norm(ray_body)
 
-    # 相机 → 机体系（相机朝正下方）
-    # 机体系: X前 Y右 Z下
-    r_body = np.array([
-        r_cam[1],  # 前
-        r_cam[0],  # 右
-        r_cam[2]  # 下
-    ])
-    r_body = r_body / np.linalg.norm(r_body)
+    # TXT姿态来自ENU约定，将其转换为NED/FRD约定。
+    yaw_ned = math.pi / 2.0 - yaw
+    pitch_ned = -pitch
 
-    # 姿态旋转（机体系 → NED），yaw(Z) pitch(Y) roll(X)
-    rot = R.from_euler('ZYX', [yaw, pitch, roll])
-    R_mat = rot.as_matrix()
+    # 云台补偿滚转；不使用TXT中的机体roll。
+    roll_ned = 0.0
 
-    r_ned = R_mat @ r_body
+    body_to_ned = R.from_euler(
+        'ZYX',
+        [yaw_ned, pitch_ned, roll_ned]
+    ).as_matrix()
 
-    rN, rE, rD = r_ned
+    ray_ned = body_to_ned @ ray_body
+    ray_north, ray_east, ray_down = ray_ned
 
-    # 防止看向地平线
-    if abs(rD) < 1e-6:
-        print("Ray is parallel to ground, no intersection.")
+    # 射线必须朝向地面。
+    if ray_down <= 1e-8:
         return None
 
-    # 射线与地面交点，飞机在 (0,0,-rel_alt)
-    t = rel_alt / rD
+    # 飞机位于地面上方rel_alt米；在NED中地面交点的Down=rel_alt。
+    scale = rel_alt / ray_down
+    north = scale * ray_north
+    east = scale * ray_east
 
-    north = t * rN
-    east  = t * rE
-    # print(f"north, east are {north}, {east} respectively.")
-
-    # 经纬度
+    # 局部东北方向距离转换为WGS84经纬度。
     lat = lat0 + (north / EARTH_RADIUS) * RAD2DEG
-    lon = lon0 + (east / (EARTH_RADIUS * np.cos(lat0 * DEG2RAD))) * RAD2DEG
+    lon = lon0 + (
+        east / (EARTH_RADIUS * math.cos(lat0 * DEG2RAD))
+    ) * RAD2DEG
 
     return lon, lat
+
 
 def is_angle_greater_than_180_counterclockwise(p1, p2, p3):
 
@@ -634,7 +631,7 @@ def update_wells(new_lon, new_lat, dis_same_well=10, dis_dfrt_well=10):
                 "lon":new_lon,
                 "lat":new_lat,
                 "points":[(new_lon, new_lat)],
-                "per_num":defaultdict(list)
+                "per_class":defaultdict(list)
             }
         )
         return 1
@@ -663,7 +660,7 @@ def update_wells(new_lon, new_lat, dis_same_well=10, dis_dfrt_well=10):
                 "lon":new_lon,
                 "lat":new_lat,
                 "points":[(new_lon, new_lat)],
-                "per_num":defaultdict(list)
+                "per_class":defaultdict(list)
             }
         )
 
@@ -699,8 +696,8 @@ def send_gps_via_ros(lat, lon):
 
     other_thread_running = False
 
-# 选择最终目标：检测次数最多的三口井中，按识别数字取中位数
-def choose_and_send_gps_via_ros():
+# 选择最终目标
+def choose_and_send_gps_via_ros(cls):
 
     if not wells:
         print("no detection but sent")
@@ -715,42 +712,33 @@ def choose_and_send_gps_via_ros():
         lons, lats = zip(*pts)
         avg_lon = sum(lons) / len(lons)
         avg_lat = sum(lats) / len(lats)
-        counts = {k: len(v) for k, v in w.get("per_num", {}).items()}
-        main_num, main_cnt = (None, 0)
+        counts = {k: len(v) for k, v in w.get("per_class", {}).items()}
+        main_cls, main_cnt = (None, 0)
         if counts:
-            filtered = {k: v for k, v in counts.items() if k not in (None, "None")}
-            if filtered:
-                main_num, main_cnt = max(filtered.items(), key=lambda x: x[1])
-        stats.append((idx, len(pts), avg_lon, avg_lat, main_num, main_cnt))
+            main_cls = max(counts.items(), key=lambda x: x[1])[0]
+            main_cnt = counts[main_cls]
+        stats.append((idx, len(pts), avg_lon, avg_lat, main_cls, main_cnt))
 
     if not stats:
-        print("no main_num but sent")
+        print("no main_cls but sent")
         send_gps_via_ros(TARGET_LAT, TARGET_LON)
         return True
 
     stats = sorted(stats, key=lambda x: x[1], reverse=True)[:3]
 
-    print("Top 3 well groups:")
-    for i, (_, _, avg_lon, avg_lat, main_num, main_cnt) in enumerate(stats):
+    print("Top well groups:")
+    for i, (_, _, avg_lon, avg_lat, main_cls, main_cnt) in enumerate(stats):
+        cls_name = cls.names[main_cls] if main_cls is not None else "Unknown"
         print(
             f"Group {i+1}: avg_lon={avg_lon:.7f}, avg_lat={avg_lat:.7f}, "
-            f"main_num={main_num}, main_num_count={main_cnt}"
+            f"main_cls={cls_name}, main_cls_count={main_cnt}"
         )
 
-    numbered = []
-    for idx, _, avg_lon, avg_lat, main_num, _ in stats:
-        try:
-            number = int(main_num) if main_num not in (None, "None") else -1
-        except (TypeError, ValueError):
-            number = -1
-        numbered.append((number, idx, avg_lon, avg_lat, main_num))
-
-    numbered.sort(key=lambda x: x[0])
-    median_idx = 1 if len(numbered) == 3 else 0
-    _, _, m_lon, m_lat, m_num = numbered[median_idx]
+    stats = sorted(stats, key=lambda x: x[4] if x[4] is not None else -1, reverse=True)
+    _, _, m_lon, m_lat, m_cls, _ = stats[0]
     print(
         f"Send group: avg_lon={m_lon:.7f}, avg_lat={m_lat:.7f}, "
-        f"main_num={m_num}"
+        f"main_cls={cls.names[m_cls] if m_cls is not None else 'Unknown'}"
     )
     send_gps_via_ros(m_lat, m_lon)
     return True
@@ -774,15 +762,12 @@ def camera_thread(cap):
     global DIS_SHOW
 
     frame_id = 0
-
+    
     while camera_running and not rospy.is_shutdown():
 
-        # 先应用待处理曝光，再拉取下一帧。调整成功后丢弃尚未推理的旧曝光帧。
+        # 应用待处理曝光
         if exposure_controller is not None:
-            applied = exposure_controller.apply_pending(cap)
-            if applied is not None:
-                with queue_lock:
-                    task_queue.clear()
+            exposure_controller.apply_pending(cap)
 
         # 获取图像
         ret, frame = cap.read()
@@ -818,7 +803,7 @@ def camera_thread(cap):
             print(f"dis={distance}")
             DIS_SHOW = False
 
-        if (camera_running and distance < dis_lim and now_alt > 10) or GROUND_TEST:
+        if (camera_running and (distance < dis_lim and now_alt > 10) ) or GROUND_TEST:
 
             if exposure_controller is not None and ENABLE_FRAME_EXPOSURE:
                 exposure_controller.observe_frame(frame)
@@ -832,14 +817,14 @@ def camera_thread(cap):
             )
 
             # 保存队列
-            if camera_running:
+            if (camera_running):
                 with save_queue_lock:
                     if len(save_queue) >= SAVE_QUEUE_MAX:
                         save_queue.popleft()
                     save_queue.append(data)
 
             # 推理队列
-            if other_thread_running:
+            if (other_thread_running):
                 with queue_lock:
                     if len(task_queue) >= QUEUE_MAX:
                         task_queue.popleft()
@@ -847,7 +832,7 @@ def camera_thread(cap):
                     task_queue.append(data)
         
 def save_thread():
-
+    
     while camera_running or other_thread_running or save_queue:
 
         data=None
@@ -882,8 +867,8 @@ def crop_save_thread():
         except Exception as e:
             print(f"[ERROR] crop_save_thread imwrite failed: {e}")
 
-# 推理线程：整帧关键点 -> 透视摆正两位数字牌 -> CNN 左右切分识别
-def infer_thread(pose, digit_model):
+# YOLO推理线程
+def infer_thread(pose, cls):
 
     global num_of_save
 
@@ -950,7 +935,7 @@ def infer_thread(pose, digit_model):
         t2 = time.time()
 
         t_gps_total = 0.0
-        t_digit_total = 0.0
+        t_cls_total = 0.0
         n_wells = len(crops)
 
         for crop_img, (center_x, center_y) in crops:
@@ -962,42 +947,49 @@ def infer_thread(pose, digit_model):
                 continue
             wlon, wlat = well_gps
 
-            idx = update_wells(wlon, wlat)
-            if not idx:
-                continue
-
-            # predict() 内部会二值化整张牌、左右裁剪并拼回两位数字。
-            td0 = time.time()
-            num_result, result_conf, digit_confs = digit_model.predict(crop_img)
-            t_digit_total += time.time() - td0
-            if num_result is None:
-                continue
-
-            wells[idx - 1]["per_num"][num_result].append((wlon, wlat))
-            print(
-                f"[INFO] well={idx} num={num_result} "
-                f"conf={result_conf:.3f} "
-                f"left={digit_confs[0]:.3f} right={digit_confs[1]:.3f}"
+            tc0 = time.time()
+            crop_img = cv2.cvtColor(cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+            cls_results = cls.predict(
+                crop_img,
+                imgsz=pic_imgsz,
+                conf=pic_conf,
+                iou=trt_iou,
+                batch=1,
+                device=0,
+                verbose=False
             )
+            t_cls_total += time.time() - tc0
+            if not cls_results:
+                continue
 
-            if SAVE_NUM_SNAPS and save_dir_exp is not None:
-                num_dir = save_dir_exp / str(num_result)
-                num_dir.mkdir(parents=True, exist_ok=True)
-                path = str(num_dir / f"{num_of_save}_{idx}_plate.jpg")
-                with crop_save_lock:
-                    if len(crop_save_queue) >= CROP_SAVE_MAX:
-                        crop_save_queue.popleft()
-                    crop_save_queue.append((crop_img, path))
-                num_of_save += 1
+            result = cls_results[0]
+            if result.boxes is None or len(result.boxes) == 0:
+                continue
+
+            for k in range(len(result.boxes)):
+                cls_id = int(result.boxes.cls[k])
+                idx = update_wells(wlon, wlat)
+                if idx:
+                    wells[idx - 1]["per_class"][cls_id].append((wlon, wlat))
+
+                if SAVE_WELL_SNAPS and save_dir_exp and idx:
+                    cls_dir = (save_dir_exp / f"cls_{cls_id}")
+                    cls_dir.mkdir(parents=True, exist_ok=True)
+                    path = str(cls_dir / f"{num_of_save}_{idx}.jpg")
+                    with crop_save_lock:
+                        if len(crop_save_queue) >= CROP_SAVE_MAX:
+                            crop_save_queue.popleft()
+                        crop_save_queue.append((crop_img, path))
+                    num_of_save += 1
 
         t_total = time.time() - t0
-        if t_total > 0.15:  # only log slow frames (>150ms)
+        if t_total > 0.05:
             print(f"[TIMING] frame total={t_total*1000:.0f}ms "
                   f"pose={((t1-t0)*1000):.0f}ms "
                   f"cut={((t2-t1)*1000):.0f}ms "
                   f"wells={n_wells} "
                   f"gps={(t_gps_total*1000):.0f}ms "
-                  f"digit={(t_digit_total*1000):.0f}ms")
+                  f"cls={(t_cls_total*1000):.0f}ms")
 
 def main():
 
@@ -1008,7 +1000,7 @@ def main():
     global TARGET_LON
     global SEND_WP
 
-    global other_thread_running, camera_running
+    global other_thread_running,camera_running
 
     signal.signal(signal.SIGUSR1, shutdown_handler)
 
@@ -1019,9 +1011,10 @@ def main():
 
     rospy.Subscriber("/mavros/global_position/global", NavSatFix, gps_cb)
     rospy.Subscriber("/mavros/local_position/pose", PoseStamped, pose_cb)
+    rospy.Subscriber("/mavros/global_position/rel_alt", Float64, rel_alt_cb)
     rospy.Subscriber("/mavros/mission/reached", WaypointReached, wp_cb)
 
-    # 替代 receive_gps.cpp：直接发布检测结果到 ROS topic
+    # 直接发布检测结果到 ROS topic
     gps_pub = rospy.Publisher("gps", GpsMsg, queue_size=1)
     yoloresult_pub = rospy.Publisher("yoloresults", yoloresults, queue_size=1)
 
@@ -1047,15 +1040,8 @@ def main():
         print("[INFO] send on the ground")
         return
 
-
-    # 存储文件夹创建
-    init_dirs()
-
-    # 清空上次运行的旧数据
-    clean_dirs()
-
     # 加载模型
-    print("[INFO] loading pose model and digit CNN...")
+    print("[INFO] loading models...")
     if USE_TRT_POSE:
         print(f"[INFO] loading TensorRT pose engine: {POSE_ENGINE_PATH}")
         det = TensorRTWrapper(
@@ -1068,21 +1054,39 @@ def main():
     else:
         if YOLO is None:
             raise RuntimeError("ultralytics is required when TensorRT pose is disabled")
-        det = YOLO("weights/step1_0717_960.pt")
+        det = YOLO("weights/step1_0724.pt")
 
-    digit_model = DigitRecognizer(
-        digit_model_path,
-        device="cuda",
-        split_gap=digit_split_gap,
-        left_confidence=digit_left_conf,
-        right_confidence=digit_right_conf
-    )
+    if USE_TRT_CLS:
+        print(f"[INFO] loading TensorRT cls engine: {CLS_ENGINE_PATH}")
+        cls = TensorRTWrapper(
+            engine_path=CLS_ENGINE_PATH,
+            lib_path=TRT_LIB_PATH,
+            num_classes=12,
+            num_keypoints=0,
+            apply_sigmoid=False  # engine outputs already-decoded values
+        )
+    else:
+        if YOLO is None:
+            raise RuntimeError("ultralytics is required when TensorRT cls is disabled")
+        cls = YOLO("weights/round1_0720.pt")
 
     if hasattr(det, "fuse"):
         det.fuse()
+    if hasattr(cls, "fuse"):
+        cls.fuse()
+
+     # 存储文件夹创建
+    init_dirs()
+    
+    # 清空上次运行的旧数据
+    clean_dirs()
+
     # 模型预热
     dummy=np.zeros((well_imgsz,well_imgsz,3), dtype=np.uint8)
     det.predict(dummy, imgsz=well_imgsz, conf=well_conf, iou=well_iou, batch=1, device=0, verbose=False)
+
+    dummy=np.zeros((pic_imgsz,pic_imgsz,3), dtype=np.uint8)
+    cls.predict(dummy, imgsz=pic_imgsz, conf=pic_conf, iou=trt_iou, batch=1, device=0, verbose=False)
 
     # 摄像头
     pipeline=gstreamer_pipeline()
@@ -1104,7 +1108,7 @@ def main():
     t_camera=threading.Thread(target=camera_thread, args=(cap,), daemon=True)
     t_save=threading.Thread(target=save_thread, daemon=True)
     t_crop_save=threading.Thread(target=crop_save_thread, daemon=True)
-    t_infer=threading.Thread(target=infer_thread, args=(det,digit_model), daemon=True)
+    t_infer=threading.Thread(target=infer_thread, args=(det,cls), daemon=True)
 
     t_camera.start()
     t_save.start()
@@ -1112,42 +1116,44 @@ def main():
     t_infer.start()
 
     try:
-        while (other_thread_running and not rospy.is_shutdown() and current_wp < SEND_WP):
+        while (other_thread_running and not rospy.is_shutdown() and  current_wp < SEND_WP):
             rospy.sleep(0.1)
 
     except KeyboardInterrupt:
         pass
 
-    # 结束侦察：停止推理入队并排空推理队列；相机和原图保存继续运行。
-    other_thread_running = False
+    # 结束侦察，停止摄像头入队，排空剩余推理与保存任务
+    other_thread_running=False
     t_infer.join(timeout=60)
 
     # 发送解算结果
     print("[INFO] choosing target...")
-    choose_and_send_gps_via_ros()
+    choose_and_send_gps_via_ros(cls)
 
+    #t_camera.join(timeout=2) 
+    #t_save.join()
     t_crop_save.join()
 
-    # 推理结果发送完成后，相机和原图保存持续到 ROS 关闭。
-    while not rospy.is_shutdown():
-        if not t_camera.is_alive():
-            print("[ERROR] camera thread unexpectedly stopped")
-            break
-        rospy.sleep(0.5)
+    # 释放摄像头 临时添加：持续拍摄
+    while(not rospy.is_shutdown()):
+        if not t_camera.is_alive():  
+            print("[ERROR] camera thread unexpected stoppped")
+        else :
+            print("camera thread is alive")
+            rospy.sleep(0.5)
 
-    camera_running = False
+    camera_running=False
     t_camera.join(timeout=2)
-
-    # 释放摄像头
     if cap.pipeline is not None:
         cap.release()
 
-    # 相机停止产生新帧后，等待保存队列全部写盘。
     t_save.join()
 
     cv2.destroyAllWindows()
     if hasattr(det, "close"):
         det.close()
+    if hasattr(cls, "close"):
+        cls.close()
     print("[INFO] exit")
 
 if __name__=="__main__":

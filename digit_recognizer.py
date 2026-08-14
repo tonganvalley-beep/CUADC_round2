@@ -22,13 +22,36 @@ class DigitRecognizer:
         self.split_gap = max(0, split_gap)
 
     @staticmethod
-    def binarize_plate(plate: np.ndarray) -> np.ndarray:
-        """Match the binary preprocessing used to build the CNN dataset."""
-        gray = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY) if plate.ndim == 3 else plate
-        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    def _binarize_region(region: np.ndarray) -> np.ndarray:
+        """Apply the CNN's blur and Otsu threshold to one illumination region."""
+        blurred = cv2.GaussianBlur(region, (3, 3), 0)
         _, binary = cv2.threshold(
-            gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+            blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
+        return binary
+
+    @classmethod
+    def binarize_plate(cls, plate: np.ndarray, split_gap: int = 3) -> np.ndarray:
+        """Binarize the two digits independently to tolerate split illumination.
+
+        The CNN always classifies the left and right digit separately.  Computing
+        one Otsu threshold for the whole plate can therefore only hurt when one
+        digit is sunlit and the other is shaded.  Keep the center gap white; it is
+        discarded by the subsequent split and makes saved review plates clearer.
+        """
+        gray = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY) if plate.ndim == 3 else plate
+        width = gray.shape[1]
+        if width < 2:
+            return cls._binarize_region(gray)
+
+        middle = width // 2
+        gap = min(max(0, split_gap), max(0, middle - 1))
+        left_end = max(1, middle - gap)
+        right_start = min(width - 1, middle + gap)
+
+        binary = np.full(gray.shape, 255, dtype=np.uint8)
+        binary[:, :left_end] = cls._binarize_region(gray[:, :left_end])
+        binary[:, right_start:] = cls._binarize_region(gray[:, right_start:])
         return binary
 
     @staticmethod
@@ -44,7 +67,7 @@ class DigitRecognizer:
 
     @torch.inference_mode()
     def predict(self, plate: np.ndarray) -> Tuple[Optional[str], float, Tuple[float, float]]:
-        plate = self.binarize_plate(plate)
+        plate = self.binarize_plate(plate, self.split_gap)
         width = plate.shape[1]
         middle = width // 2
         gap = min(self.split_gap, max(0, middle - 1))
