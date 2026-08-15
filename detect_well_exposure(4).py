@@ -818,13 +818,19 @@ def save_raw_and_info(img, info, frame_id, exposure_ns):
 
     lon,lat,alt,pitch,yaw,roll=info
 
+    image_start = time.perf_counter()
     cv2.imwrite(f"{raw_path}/{frame_id}.jpg", img)
+    image_elapsed = time.perf_counter() - image_start
 
+    info_start = time.perf_counter()
     with open(f"{info_path}/{frame_id}.txt", "w") as f:
         f.write(
             f"{lon} {lat} {alt} "
             f"{pitch} {yaw} {roll} {int(exposure_ns)}"
         )
+    info_elapsed = time.perf_counter() - info_start
+
+    return image_elapsed, info_elapsed
 
 # 摄像头线程
 def camera_thread(cap):
@@ -891,6 +897,7 @@ def camera_thread(cap):
                 with save_queue_lock:
                     if len(save_queue) >= SAVE_QUEUE_MAX:
                         save_queue.popleft()
+                        print("save too slow")
                     save_queue.append(data)
 
             # 推理队列
@@ -906,17 +913,30 @@ def save_thread():
     while camera_running or other_thread_running or save_queue:
 
         data=None
+        pending_count = 0
 
         with save_queue_lock:
             if save_queue:
                 data=save_queue.popleft()
+                pending_count = len(save_queue)
 
         if data is None:
             time.sleep(0.01)
             continue
 
-        save_raw_and_info(
+        queue_wait = max(0.0, time.monotonic() - data.captured_at)
+        save_start = time.perf_counter()
+        image_elapsed, info_elapsed = save_raw_and_info(
             data.img, data.info, data.frame_id, data.exposure_ns
+        )
+        save_elapsed = time.perf_counter() - save_start
+        print(
+            f"[TIMING] save frame={data.frame_id} "
+            f"total={save_elapsed*1000:.1f}ms "
+            f"jpg={image_elapsed*1000:.1f}ms "
+            f"txt={info_elapsed*1000:.1f}ms "
+            f"queue_wait={queue_wait*1000:.1f}ms "
+            f"pending={pending_count}"
         )
 
 def crop_save_thread():
