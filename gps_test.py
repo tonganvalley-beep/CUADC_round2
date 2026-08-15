@@ -13,20 +13,20 @@ cell_width = 0.899
 cell_height = 0.473
 scale_gps = 1.0
 
-fx=2726.575028744192423
-cx=928.327607790873003
-fy=2727.167466485869227
-cy=565.145908375505314
-k1 = 0.08992784064861
-k2 = 1.106881115498932
-p1 = 0.000511898824711
-p2 = 0.000987814578193
-k3 = -9.232783177431058
+fx=1488.57046
+cx=923.64740
+fy=1489.12759
+cy=558.47729
+k1 = -0.09335156
+k2 =  0.15173118
+p1 = -0.00051328
+p2 = -0.00212067
+k3 = -0.10798687
 DEG2RAD = np.pi / 180.0
 RAD2DEG = 180.0 / np.pi
 EARTH_RADIUS = 6378137.0  # WGS84
-TARGET_LAT = 33.9487857
-TARGET_LON = 117.1774021
+TARGET_LAT = 33.9488070
+TARGET_LON = 117.1772730
 
 def read_info(info_path):
     """读取 lon、lat、alt、pitch、yaw、roll；姿态角单位为弧度。"""
@@ -205,7 +205,7 @@ def get_pixel_points(img):
     return list(clicked_points), window_action
 
 def main():
-    data_dir = Path(__file__).resolve().parent / "pic_19"    
+    data_dir = Path(__file__).resolve().parent / "pic_22"    
     img_dir = data_dir / "selected_pic"
     info_dir = data_dir / "info_to_ground"
 

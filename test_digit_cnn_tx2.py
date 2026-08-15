@@ -42,9 +42,12 @@ def collect_images(inputs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("inputs", nargs="+", help="rectified plate files, globs, or directories")
-    parser.add_argument("--model", default="weights/digit_cnn.ts")
+    parser.add_argument(
+        "--model",
+        default="weights/digit_cnn_v5_pic22_23_shadow_dynamic_finetune_v3.ts",
+    )
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
-    parser.add_argument("--left-threshold", type=float, default=0.45)
+    parser.add_argument("--left-threshold", type=float, default=0.40)
     parser.add_argument("--right-threshold", type=float, default=0.60)
     parser.add_argument("--threshold", type=float, default=None,
                         help="legacy option: override both side thresholds")

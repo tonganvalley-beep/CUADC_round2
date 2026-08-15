@@ -98,10 +98,10 @@ BATCH_SIZE = 1
 SAVE_QUEUE_MAX=12
 
 # 数字识别参数
-digit_left_conf = 0.45
+digit_left_conf = 0.40
 digit_right_conf = 0.60
 digit_split_gap = 3
-digit_model_path = "/home/tx2/ultralytics-main/weights/digit_cnn_v5_pic10_11_finetune.ts"
+digit_model_path = "/home/tx2/ultralytics-main/weights/digit_cnn_v5_pic22_23_shadow_dynamic_finetune_v3.ts"
 
 WELL_KPT_CONF = 0.35            # 关键点置信度阈值，低于该值的天井不进行裁剪
 WELL_SIDE_MIN = 10.0            # 四边形每边的最小长度

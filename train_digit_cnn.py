@@ -21,6 +21,8 @@ import torch
 from torch import nn
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
+from digit_recognizer import DigitRecognizer
+
 
 class DigitCNN(nn.Module):
     """Small (~25k parameter) classifier intended for Jetson TX2."""
@@ -154,14 +156,22 @@ class DigitDataset(Dataset):
         with Image.open(path) as opened:
             image = ImageOps.exif_transpose(opened).convert("L")
         w, h = image.size
-        mid = w // 2
+        raw_split = row.get("split_x", "")
+        try:
+            mid = int(raw_split) if raw_split != "" else w // 2
+        except (TypeError, ValueError):
+            mid = w // 2
+        mid = max(gap + 1, min(w - gap - 1, mid))
         if side == 0:
             digit = image.crop((0, 0, max(1, mid - gap), h))
         else:
             digit = image.crop((min(w - 1, mid + gap), 0, w, h))
         if self.train:
             digit = self._morphology(digit)
-        digit = ImageOps.pad(digit, (32, 32), color=255, method=Image.Resampling.BILINEAR)
+        digit = Image.fromarray(
+            DigitRecognizer.prepare_digit_image(np.asarray(digit, dtype=np.uint8)),
+            mode="L",
+        )
         if self.train:
             digit = self._augment(digit)
             digit = self._degrade(digit)
@@ -443,6 +453,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
     best_accuracy = -1.0
+    best_loss = float("inf")
     best_state = None
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -460,7 +471,8 @@ def main() -> None:
             if extra_val_rows else None)
         single_val_accuracy = evaluate_single(
             model, single_val_rows, single_csv_dir, device, args.batch_size)
-        print(f"epoch={epoch:03d} loss={total_loss/len(loader):.4f} "
+        epoch_loss = total_loss / len(loader)
+        print(f"epoch={epoch:03d} loss={epoch_loss:.4f} "
               f"left={metrics['left_accuracy']:.4f} right={metrics['right_accuracy']:.4f} "
               f"plate={metrics['plate_accuracy']:.4f} "
               f"extra_plate={extra_val_metrics['plate_accuracy'] if extra_val_metrics else float('nan'):.4f} "
@@ -473,8 +485,12 @@ def main() -> None:
         elif single_val_rows:
             selection_accuracy = (
                 0.7 * metrics["plate_accuracy"] + 0.3 * single_val_accuracy)
-        if selection_accuracy > best_accuracy:
+        if (selection_accuracy > best_accuracy or
+                (math.isclose(selection_accuracy, best_accuracy,
+                              rel_tol=0.0, abs_tol=1e-12)
+                 and epoch_loss < best_loss)):
             best_accuracy = selection_accuracy
+            best_loss = epoch_loss
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
     assert best_state is not None
