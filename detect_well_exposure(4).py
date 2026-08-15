@@ -106,6 +106,13 @@ WELL_KPT_CONF = 0.35            # 关键点置信度阈值，低于该值的天�
 WELL_SIDE_MIN = 10.0            # 四边形每边的最小长度
 WELL_AREA_MIN = 100.0           # 四边形面积最小值
 WELL_PARALLEL_TOL_DEG = 20.0    # 四边形对边平行度容差，单位：度
+WELL_EDGE_MARGIN_MIN = 5.0              # Reject when any of keypoints 1~4 is closer than this to the frame edge.
+WELL_MAX_CORNER_DEVIATION_DEG = 20.0    # Maximum allowed deviation of any quad corner from 90 degrees.
+WELL_AREA_EDGE_MARGIN_PX = 20.0         # Apply the quad/bbox fill test only when keypoints 1~4 are near an edge.
+WELL_MIN_QUAD_BBOX_FILL = 0.107         # Minimum quad area / detection bbox area for near-edge detections.
+WELL_MAX_BLACK_BORDER_RATIO = 0.015     # Maximum near-black ratio in the outer crop border.
+WELL_BLACK_BORDER_WIDTH = 5             # Border width in the 100x100 perspective crop.
+WELL_BLACK_PIXEL_THRESHOLD = 8          # Near-black means every BGR channel is below this value.
 
 # 坐标解算参数
 fx = 1487.0237
@@ -502,6 +509,37 @@ def _is_parallel(v1, v2, tol_deg):
     sin_theta = abs(v1[0] * v2[1] - v1[1] * v2[0]) / (n1 * n2)
     return sin_theta <= math.sin(math.radians(tol_deg))
 
+def _max_corner_deviation(pts):
+
+    max_deviation = 0.0
+    for i in range(4):
+        v1 = pts[(i - 1) % 4] - pts[i]
+        v2 = pts[(i + 1) % 4] - pts[i]
+        denominator = np.linalg.norm(v1) * np.linalg.norm(v2)
+        if denominator < 1e-6:
+            return float("inf")
+        cosine = np.clip(np.dot(v1, v2) / denominator, -1.0, 1.0)
+        angle = math.degrees(math.acos(float(cosine)))
+        max_deviation = max(max_deviation, abs(angle - 90.0))
+    return max_deviation
+
+def _black_border_ratio(crop):
+
+    height, width = crop.shape[:2]
+    border_width = min(WELL_BLACK_BORDER_WIDTH, height // 2, width // 2)
+    if border_width <= 0:
+        return 0.0
+
+    border_mask = np.ones((height, width), dtype=bool)
+    if height > 2 * border_width and width > 2 * border_width:
+        border_mask[border_width:-border_width, border_width:-border_width] = False
+
+    if crop.ndim == 2:
+        black_pixels = crop < WELL_BLACK_PIXEL_THRESHOLD
+    else:
+        black_pixels = np.max(crop, axis=2) < WELL_BLACK_PIXEL_THRESHOLD
+    return float(np.mean(black_pixels[border_mask]))
+
 def is_valid_well_quad(pts):
 
     contour = pts.reshape(-1, 1, 2).astype(np.float32)
@@ -517,6 +555,9 @@ def is_valid_well_quad(pts):
         if np.linalg.norm(edge) < WELL_SIDE_MIN:
             return False
 
+    if _max_corner_deviation(pts) > WELL_MAX_CORNER_DEVIATION_DEG:
+        return False
+
     return _is_parallel(edges[0], edges[2], WELL_PARALLEL_TOL_DEG) and _is_parallel(edges[1], edges[3], WELL_PARALLEL_TOL_DEG)
 
 # 天井关键点透视裁剪
@@ -530,14 +571,31 @@ def cut(img, results):
         return out
 
     kpts = results.keypoints.data.cpu().numpy()
+    boxes = None
+    if results.boxes is not None and len(results.boxes) > 0:
+        boxes = results.boxes.xyxy.cpu().numpy()
+    img_h, img_w = img.shape[:2]
 
-    for kp in kpts:
+    for detection_index, kp in enumerate(kpts):
 
         if len(kp) < 5:
             continue
 
         corner_conf = [float(kp[idx][2]) for idx in (1, 2, 3, 4)]
         if min(corner_conf) < WELL_KPT_CONF:
+            continue
+
+        # 仅使用1~4号角点进行边缘过滤；负余量表示预测点已经落在画面外。
+        corner_edge_margin = min(
+            min(
+                float(kp[idx][0]),
+                float(kp[idx][1]),
+                float(img_w - 1) - float(kp[idx][0]),
+                float(img_h - 1) - float(kp[idx][1]),
+            )
+            for idx in (1, 2, 3, 4)
+        )
+        if corner_edge_margin < WELL_EDGE_MARGIN_MIN:
             continue
 
         p1 = [float(kp[1][0]), float(kp[1][1])]
@@ -556,11 +614,23 @@ def cut(img, results):
         if not is_valid_well_quad(pts1):
             continue
 
+        if boxes is not None and detection_index < len(boxes):
+            x1, y1, x2, y2 = [float(value) for value in boxes[detection_index][:4]]
+            bbox_area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+            quad_area = abs(cv2.contourArea(pts1.reshape(-1, 1, 2)))
+            quad_bbox_fill = quad_area / bbox_area if bbox_area > 1e-6 else 0.0
+            if (corner_edge_margin < WELL_AREA_EDGE_MARGIN_PX
+                    and quad_bbox_fill < WELL_MIN_QUAD_BBOX_FILL):
+                continue
+
         pts1 = expand_quad_pixel(pts1, expand=3)
         pts2 = np.float32([[0, 0], [100, 0], [100, 100], [0, 100]])
         M = cv2.getPerspectiveTransform(pts1, pts2)
         warped = cv2.warpPerspective(img, M, (100, 100))
         crop = warped
+
+        if _black_border_ratio(crop) > WELL_MAX_BLACK_BORDER_RATIO:
+            continue
 
         if SAVE_CROPS:
             path = os.path.join(folder_cut, f"{num_of_cut}.jpg")
@@ -915,9 +985,8 @@ def infer_thread(pose, cls):
 
         # 将关键点和 bbox 坐标从检测分辨率缩放回原始分辨率
         if pose_result.keypoints is not None:
-            kpts = pose_result.keypoints.data.cpu().numpy()
-            kpts[:, :, 0] *= scale_x
-            kpts[:, :, 1] *= scale_y
+            pose_result.keypoints.data[:, :, 0] *= scale_x
+            pose_result.keypoints.data[:, :, 1] *= scale_y
         if pose_result.boxes is not None and len(pose_result.boxes) > 0:
             pose_result.boxes.xyxy[:, [0, 2]] *= scale_x
             pose_result.boxes.xyxy[:, [1, 3]] *= scale_y

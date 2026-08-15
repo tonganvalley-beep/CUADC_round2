@@ -1324,5 +1324,1229 @@
     "min_edge_distance_rel": 0.0,
     "min_edge_margin_px": 0.0,
     "min_edge_margin_rel": 0.0
+  },
+  {
+    "source": "2_1065.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\2_1065.jpg",
+    "detection_index": 1,
+    "box": [
+      1278.1380615234375,
+      0.0,
+      1439.9937744140625,
+      210.60205078125
+    ],
+    "box_confidence": 0.721476137638092,
+    "keypoints": [
+      [
+        1343.6435546875,
+        208.6668701171875,
+        0.9842537641525269
+      ],
+      [
+        1394.817138671875,
+        85.2198257446289,
+        0.9964330196380615
+      ],
+      [
+        1410.59375,
+        16.539087295532227,
+        0.9954541921615601
+      ],
+      [
+        1345.432861328125,
+        5.694316864013672,
+        0.9891553521156311
+      ],
+      [
+        1329.5224609375,
+        77.26256561279297,
+        0.9891196489334106
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\2_1065__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\2_1065__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1345.432861328125,
+    "closest_keypoint_y": 5.694316864013672,
+    "closest_keypoint_confidence": 0.9891553521156311,
+    "closest_edge": "top",
+    "min_edge_distance_px": 5.694316864013672,
+    "min_edge_distance_rel": 0.005277402098251781,
+    "min_edge_margin_px": 5.694316864013672,
+    "min_edge_margin_rel": 0.005277402098251781
+  },
+  {
+    "source": "2_395.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\2_395.jpg",
+    "detection_index": 1,
+    "box": [
+      1421.7103271484375,
+      0.0,
+      1611.943359375,
+      123.46044921875
+    ],
+    "box_confidence": 0.6378855109214783,
+    "keypoints": [
+      [
+        1428.7362060546875,
+        115.35684204101562,
+        0.9920824766159058
+      ],
+      [
+        1520.68701171875,
+        78.58056640625,
+        0.9953203797340393
+      ],
+      [
+        1566.7540283203125,
+        35.29713821411133,
+        0.9941061735153198
+      ],
+      [
+        1526.345947265625,
+        0.0,
+        0.9913920164108276
+      ],
+      [
+        1485.3680419921875,
+        31.880407333374023,
+        0.9940343499183655
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\2_395__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\2_395__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1526.345947265625,
+    "closest_keypoint_y": 0.0,
+    "closest_keypoint_confidence": 0.9913920164108276,
+    "closest_edge": "top",
+    "min_edge_distance_px": 0.0,
+    "min_edge_distance_rel": 0.0,
+    "min_edge_margin_px": 0.0,
+    "min_edge_margin_rel": 0.0
+  },
+  {
+    "source": "2_398.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\2_398.jpg",
+    "detection_index": 1,
+    "box": [
+      1404.180419921875,
+      903.3656616210938,
+      1608.968017578125,
+      1080.0
+    ],
+    "box_confidence": 0.7728904485702515,
+    "keypoints": [
+      [
+        1407.270263671875,
+        1068.324462890625,
+        0.9952601790428162
+      ],
+      [
+        1505.89404296875,
+        1050.720458984375,
+        0.9956651329994202
+      ],
+      [
+        1573.680908203125,
+        1015.11767578125,
+        0.9976271986961365
+      ],
+      [
+        1539.243408203125,
+        960.35302734375,
+        0.9941200613975525
+      ],
+      [
+        1479.2978515625,
+        993.164794921875,
+        0.9978989362716675
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\2_398__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\2_398__well_01.jpg",
+    "closest_keypoint_index": 0,
+    "closest_keypoint_x": 1407.270263671875,
+    "closest_keypoint_y": 1068.324462890625,
+    "closest_keypoint_confidence": 0.9952601790428162,
+    "closest_edge": "bottom",
+    "min_edge_distance_px": 10.675537109375,
+    "min_edge_distance_rel": 0.009893917617585728,
+    "min_edge_margin_px": 10.675537109375,
+    "min_edge_margin_rel": 0.009893917617585728
+  },
+  {
+    "source": "3_198.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\3_198.jpg",
+    "detection_index": 1,
+    "box": [
+      348.3536376953125,
+      0.0,
+      559.0985107421875,
+      136.728271484375
+    ],
+    "box_confidence": 0.802635908126831,
+    "keypoints": [
+      [
+        352.00543212890625,
+        41.98230743408203,
+        0.9946603178977966
+      ],
+      [
+        451.909912109375,
+        95.85738372802734,
+        0.9945530891418457
+      ],
+      [
+        518.2935791015625,
+        103.71704864501953,
+        0.996593177318573
+      ],
+      [
+        532.5478515625,
+        36.867103576660156,
+        0.9918809533119202
+      ],
+      [
+        466.76910400390625,
+        28.781295776367188,
+        0.9972009658813477
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\3_198__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\3_198__well_01.jpg",
+    "closest_keypoint_index": 4,
+    "closest_keypoint_x": 466.76910400390625,
+    "closest_keypoint_y": 28.781295776367188,
+    "closest_keypoint_confidence": 0.9972009658813477,
+    "closest_edge": "top",
+    "min_edge_distance_px": 28.781295776367188,
+    "min_edge_distance_rel": 0.02667404613194364,
+    "min_edge_margin_px": 28.781295776367188,
+    "min_edge_margin_rel": 0.02667404613194364
+  },
+  {
+    "source": "3_794.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\3_794.jpg",
+    "detection_index": 1,
+    "box": [
+      1395.3848876953125,
+      0.0,
+      1570.289306640625,
+      140.0316619873047
+    ],
+    "box_confidence": 0.815082848072052,
+    "keypoints": [
+      [
+        1399.693115234375,
+        131.14654541015625,
+        0.9938459992408752
+      ],
+      [
+        1495.65673828125,
+        96.89595031738281,
+        0.9947919249534607
+      ],
+      [
+        1544.5264892578125,
+        54.056846618652344,
+        0.9944814443588257
+      ],
+      [
+        1506.335205078125,
+        9.424861907958984,
+        0.9924337863922119
+      ],
+      [
+        1461.321533203125,
+        46.756431579589844,
+        0.9957485795021057
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\3_794__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\3_794__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1506.335205078125,
+    "closest_keypoint_y": 9.424861907958984,
+    "closest_keypoint_confidence": 0.9924337863922119,
+    "closest_edge": "top",
+    "min_edge_distance_px": 9.424861907958984,
+    "min_edge_distance_rel": 0.008734811777533814,
+    "min_edge_margin_px": 9.424861907958984,
+    "min_edge_margin_rel": 0.008734811777533814
+  },
+  {
+    "source": "4_193.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\4_193.jpg",
+    "detection_index": 1,
+    "box": [
+      542.4110717773438,
+      70.3344497680664,
+      746.873779296875,
+      212.0823211669922
+    ],
+    "box_confidence": 0.8277727961540222,
+    "keypoints": [
+      [
+        542.39990234375,
+        131.75437927246094,
+        0.9949280023574829
+      ],
+      [
+        645.0240478515625,
+        173.79290771484375,
+        0.9946519136428833
+      ],
+      [
+        710.6220703125,
+        175.1777801513672,
+        0.9967330694198608
+      ],
+      [
+        717.9531860351562,
+        108.0699691772461,
+        0.9926596283912659
+      ],
+      [
+        651.9677734375,
+        107.03608703613281,
+        0.9973817467689514
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\4_193__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\4_193__well_01.jpg",
+    "closest_keypoint_index": 4,
+    "closest_keypoint_x": 651.9677734375,
+    "closest_keypoint_y": 107.03608703613281,
+    "closest_keypoint_confidence": 0.9973817467689514,
+    "closest_edge": "top",
+    "min_edge_distance_px": 107.03608703613281,
+    "min_edge_distance_rel": 0.09919933923645302,
+    "min_edge_margin_px": 107.03608703613281,
+    "min_edge_margin_rel": 0.09919933923645302
+  },
+  {
+    "source": "4_193.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\4_193.jpg",
+    "detection_index": 2,
+    "box": [
+      1292.2547607421875,
+      0.0,
+      1481.823486328125,
+      124.632568359375
+    ],
+    "box_confidence": 0.7371701598167419,
+    "keypoints": [
+      [
+        1476.8778076171875,
+        77.08309936523438,
+        0.9796600937843323
+      ],
+      [
+        1402.296630859375,
+        24.173480987548828,
+        0.9945427179336548
+      ],
+      [
+        1347.986328125,
+        6.339305877685547,
+        0.9952789545059204
+      ],
+      [
+        1323.817138671875,
+        63.84674835205078,
+        0.9925098419189453
+      ],
+      [
+        1377.5238037109375,
+        75.6715087890625,
+        0.9898001551628113
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\4_193__well_02.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\4_193__well_02.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 1347.986328125,
+    "closest_keypoint_y": 6.339305877685547,
+    "closest_keypoint_confidence": 0.9952789545059204,
+    "closest_edge": "top",
+    "min_edge_distance_px": 6.339305877685547,
+    "min_edge_distance_rel": 0.005875167634555651,
+    "min_edge_margin_px": 6.339305877685547,
+    "min_edge_margin_rel": 0.005875167634555651
+  },
+  {
+    "source": "4_198.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\4_198.jpg",
+    "detection_index": 1,
+    "box": [
+      1303.802490234375,
+      0.0,
+      1466.82568359375,
+      117.2966079711914
+    ],
+    "box_confidence": 0.6762353777885437,
+    "keypoints": [
+      [
+        1318.80810546875,
+        109.2996826171875,
+        0.9931117296218872
+      ],
+      [
+        1395.4630126953125,
+        68.02581024169922,
+        0.9947916865348816
+      ],
+      [
+        1435.87158203125,
+        25.190649032592773,
+        0.9946672916412354
+      ],
+      [
+        1395.5352783203125,
+        0.0,
+        0.9929854273796082
+      ],
+      [
+        1360.5487060546875,
+        29.420562744140625,
+        0.9953885078430176
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\4_198__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\4_198__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1395.5352783203125,
+    "closest_keypoint_y": 0.0,
+    "closest_keypoint_confidence": 0.9929854273796082,
+    "closest_edge": "top",
+    "min_edge_distance_px": 0.0,
+    "min_edge_distance_rel": 0.0,
+    "min_edge_margin_px": 0.0,
+    "min_edge_margin_rel": 0.0
+  },
+  {
+    "source": "4_391.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\4_391.jpg",
+    "detection_index": 1,
+    "box": [
+      526.6048583984375,
+      0.0,
+      751.3466796875,
+      110.46731567382812
+    ],
+    "box_confidence": 0.7186279296875,
+    "keypoints": [
+      [
+        545.772705078125,
+        0.0,
+        0.9955105781555176
+      ],
+      [
+        633.5089111328125,
+        58.5736083984375,
+        0.9943608641624451
+      ],
+      [
+        695.0794677734375,
+        78.42107391357422,
+        0.9972610473632812
+      ],
+      [
+        714.869140625,
+        17.00657844543457,
+        0.9939031004905701
+      ],
+      [
+        654.602294921875,
+        0.0,
+        0.9979366064071655
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\4_391__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\4_391__well_01.jpg",
+    "closest_keypoint_index": 0,
+    "closest_keypoint_x": 545.772705078125,
+    "closest_keypoint_y": 0.0,
+    "closest_keypoint_confidence": 0.9955105781555176,
+    "closest_edge": "top",
+    "min_edge_distance_px": 0.0,
+    "min_edge_distance_rel": 0.0,
+    "min_edge_margin_px": 0.0,
+    "min_edge_margin_rel": 0.0
+  },
+  {
+    "source": "6_204.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\6_204.jpg",
+    "detection_index": 1,
+    "box": [
+      770.2922973632812,
+      278.64520263671875,
+      939.62548828125,
+      388.17584228515625
+    ],
+    "box_confidence": 0.8357426524162292,
+    "keypoints": [
+      [
+        774.79931640625,
+        327.7352294921875,
+        0.9958894848823547
+      ],
+      [
+        860.9382934570312,
+        358.935546875,
+        0.9943714737892151
+      ],
+      [
+        913.7294921875,
+        358.06365966796875,
+        0.9969731569290161
+      ],
+      [
+        912.6121215820312,
+        304.83795166015625,
+        0.9951480031013489
+      ],
+      [
+        861.811767578125,
+        305.01318359375,
+        0.9980890154838562
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\6_204__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\6_204__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 912.6121215820312,
+    "closest_keypoint_y": 304.83795166015625,
+    "closest_keypoint_confidence": 0.9951480031013489,
+    "closest_edge": "top",
+    "min_edge_distance_px": 304.83795166015625,
+    "min_edge_distance_rel": 0.2825189542726193,
+    "min_edge_margin_px": 304.83795166015625,
+    "min_edge_margin_rel": 0.2825189542726193
+  },
+  {
+    "source": "6_428.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\6_428.jpg",
+    "detection_index": 1,
+    "box": [
+      891.43310546875,
+      336.01763916015625,
+      1063.1419677734375,
+      444.618408203125
+    ],
+    "box_confidence": 0.875809907913208,
+    "keypoints": [
+      [
+        890.01025390625,
+        363.0087890625,
+        0.9962956309318542
+      ],
+      [
+        972.527587890625,
+        413.0686340332031,
+        0.9939577579498291
+      ],
+      [
+        1026.653076171875,
+        425.66650390625,
+        0.9973191618919373
+      ],
+      [
+        1038.2041015625,
+        369.2615966796875,
+        0.995500385761261
+      ],
+      [
+        984.765869140625,
+        358.585205078125,
+        0.9984806180000305
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\6_428__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\6_428__well_01.jpg",
+    "closest_keypoint_index": 4,
+    "closest_keypoint_x": 984.765869140625,
+    "closest_keypoint_y": 358.585205078125,
+    "closest_keypoint_confidence": 0.9984806180000305,
+    "closest_edge": "top",
+    "min_edge_distance_px": 358.585205078125,
+    "min_edge_distance_rel": 0.33233105197231233,
+    "min_edge_margin_px": 358.585205078125,
+    "min_edge_margin_rel": 0.33233105197231233
+  },
+  {
+    "source": "8_399.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_399.jpg",
+    "detection_index": 1,
+    "box": [
+      340.2087707519531,
+      617.2131958007812,
+      523.3861083984375,
+      773.9891967773438
+    ],
+    "box_confidence": 0.8666546940803528,
+    "keypoints": [
+      [
+        345.5984802246094,
+        619.25146484375,
+        0.9941123127937317
+      ],
+      [
+        407.4725646972656,
+        712.4478149414062,
+        0.9944327473640442
+      ],
+      [
+        456.59918212890625,
+        746.7813720703125,
+        0.9973133206367493
+      ],
+      [
+        493.0546875,
+        695.4967651367188,
+        0.9939109086990356
+      ],
+      [
+        442.1732482910156,
+        659.8646850585938,
+        0.9972148537635803
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_399__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_399__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 456.59918212890625,
+    "closest_keypoint_y": 746.7813720703125,
+    "closest_keypoint_confidence": 0.9973133206367493,
+    "closest_edge": "bottom",
+    "min_edge_distance_px": 332.2186279296875,
+    "min_edge_distance_rel": 0.3078949285724629,
+    "min_edge_margin_px": 332.2186279296875,
+    "min_edge_margin_rel": 0.3078949285724629
+  },
+  {
+    "source": "8_402.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_402.jpg",
+    "detection_index": 1,
+    "box": [
+      616.8983154296875,
+      546.3072509765625,
+      758.03076171875,
+      732.9495849609375
+    ],
+    "box_confidence": 0.8679124116897583,
+    "keypoints": [
+      [
+        639.0554809570312,
+        549.7474975585938,
+        0.9926355481147766
+      ],
+      [
+        651.8153076171875,
+        649.9781494140625,
+        0.9934858679771423
+      ],
+      [
+        676.8154907226562,
+        701.581298828125,
+        0.9960148334503174
+      ],
+      [
+        725.9959106445312,
+        680.5679931640625,
+        0.9948692321777344
+      ],
+      [
+        706.7264404296875,
+        629.66650390625,
+        0.9966155886650085
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_402__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_402__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 676.8154907226562,
+    "closest_keypoint_y": 701.581298828125,
+    "closest_keypoint_confidence": 0.9960148334503174,
+    "closest_edge": "bottom",
+    "min_edge_distance_px": 377.418701171875,
+    "min_edge_distance_rel": 0.3497856359331557,
+    "min_edge_margin_px": 377.418701171875,
+    "min_edge_margin_rel": 0.3497856359331557
+  },
+  {
+    "source": "8_404.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_404.jpg",
+    "detection_index": 1,
+    "box": [
+      996.7655639648438,
+      355.0865478515625,
+      1172.863525390625,
+      469.47711181640625
+    ],
+    "box_confidence": 0.8630053400993347,
+    "keypoints": [
+      [
+        997.3676147460938,
+        383.189697265625,
+        0.9961590766906738
+      ],
+      [
+        1081.802001953125,
+        436.7767333984375,
+        0.9926309585571289
+      ],
+      [
+        1137.950439453125,
+        449.6558837890625,
+        0.9962127208709717
+      ],
+      [
+        1153.1490478515625,
+        391.1533203125,
+        0.9940756559371948
+      ],
+      [
+        1097.052734375,
+        379.4431457519531,
+        0.9982345104217529
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_404__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_404__well_01.jpg",
+    "closest_keypoint_index": 4,
+    "closest_keypoint_x": 1097.052734375,
+    "closest_keypoint_y": 379.4431457519531,
+    "closest_keypoint_confidence": 0.9982345104217529,
+    "closest_edge": "top",
+    "min_edge_distance_px": 379.4431457519531,
+    "min_edge_distance_rel": 0.3516618588989371,
+    "min_edge_margin_px": 379.4431457519531,
+    "min_edge_margin_rel": 0.3516618588989371
+  },
+  {
+    "source": "8_598.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_598.jpg",
+    "detection_index": 1,
+    "box": [
+      379.51983642578125,
+      0.0,
+      540.7567138671875,
+      87.5178451538086
+    ],
+    "box_confidence": 0.6880878210067749,
+    "keypoints": [
+      [
+        397.8128662109375,
+        0.0,
+        0.9876333475112915
+      ],
+      [
+        445.93878173828125,
+        41.61931228637695,
+        0.9954646229743958
+      ],
+      [
+        482.5078125,
+        62.792335510253906,
+        0.9957713484764099
+      ],
+      [
+        502.5119934082031,
+        25.739038467407227,
+        0.9917539358139038
+      ],
+      [
+        466.43328857421875,
+        5.861652374267578,
+        0.9916366934776306
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_598__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_598__well_01.jpg",
+    "closest_keypoint_index": 0,
+    "closest_keypoint_x": 397.8128662109375,
+    "closest_keypoint_y": 0.0,
+    "closest_keypoint_confidence": 0.9876333475112915,
+    "closest_edge": "top",
+    "min_edge_distance_px": 0.0,
+    "min_edge_distance_rel": 0.0,
+    "min_edge_margin_px": 0.0,
+    "min_edge_margin_rel": 0.0
+  },
+  {
+    "source": "8_601.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_601.jpg",
+    "detection_index": 1,
+    "box": [
+      387.65289306640625,
+      649.0789794921875,
+      567.1900024414062,
+      810.2122192382812
+    ],
+    "box_confidence": 0.8522281646728516,
+    "keypoints": [
+      [
+        388.8051452636719,
+        658.114990234375,
+        0.9947199821472168
+      ],
+      [
+        452.99468994140625,
+        745.987060546875,
+        0.9945407509803772
+      ],
+      [
+        499.6203918457031,
+        781.66015625,
+        0.9975468516349792
+      ],
+      [
+        536.82470703125,
+        727.7094116210938,
+        0.9951255917549133
+      ],
+      [
+        487.1205139160156,
+        696.509521484375,
+        0.9978214502334595
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_601__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_601__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 499.6203918457031,
+    "closest_keypoint_y": 781.66015625,
+    "closest_keypoint_confidence": 0.9975468516349792,
+    "closest_edge": "bottom",
+    "min_edge_distance_px": 297.33984375,
+    "min_edge_distance_rel": 0.27556982738646896,
+    "min_edge_margin_px": 297.33984375,
+    "min_edge_margin_rel": 0.27556982738646896
+  },
+  {
+    "source": "8_793.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_793.jpg",
+    "detection_index": 1,
+    "box": [
+      1289.0328369140625,
+      647.9097290039062,
+      1493.70263671875,
+      783.687744140625
+    ],
+    "box_confidence": 0.844270646572113,
+    "keypoints": [
+      [
+        1281.95166015625,
+        715.236328125,
+        0.9952915906906128
+      ],
+      [
+        1400.8721923828125,
+        751.8250732421875,
+        0.9944614171981812
+      ],
+      [
+        1466.283447265625,
+        753.1265869140625,
+        0.9961795806884766
+      ],
+      [
+        1472.56591796875,
+        679.3904418945312,
+        0.9920227527618408
+      ],
+      [
+        1404.9752197265625,
+        681.10986328125,
+        0.9974653720855713
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_793__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_793__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 1466.283447265625,
+    "closest_keypoint_y": 753.1265869140625,
+    "closest_keypoint_confidence": 0.9961795806884766,
+    "closest_edge": "bottom",
+    "min_edge_distance_px": 325.8734130859375,
+    "min_edge_distance_rel": 0.3020142846023517,
+    "min_edge_margin_px": 325.8734130859375,
+    "min_edge_margin_rel": 0.3020142846023517
+  },
+  {
+    "source": "8_797.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\8_797.jpg",
+    "detection_index": 1,
+    "box": [
+      1107.9775390625,
+      95.30766296386719,
+      1316.2840576171875,
+      245.64422607421875
+    ],
+    "box_confidence": 0.8310572504997253,
+    "keypoints": [
+      [
+        1115.071533203125,
+        226.3612060546875,
+        0.995754599571228
+      ],
+      [
+        1226.697998046875,
+        212.88150024414062,
+        0.995491087436676
+      ],
+      [
+        1290.2183837890625,
+        183.938720703125,
+        0.9972379207611084
+      ],
+      [
+        1262.482177734375,
+        123.6170654296875,
+        0.994799017906189
+      ],
+      [
+        1201.536865234375,
+        150.63421630859375,
+        0.9978649020195007
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\8_797__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\8_797__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1262.482177734375,
+    "closest_keypoint_y": 123.6170654296875,
+    "closest_keypoint_confidence": 0.994799017906189,
+    "closest_edge": "top",
+    "min_edge_distance_px": 123.6170654296875,
+    "min_edge_distance_rel": 0.11456632569943234,
+    "min_edge_margin_px": 123.6170654296875,
+    "min_edge_margin_rel": 0.11456632569943234
+  },
+  {
+    "source": "9_210.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\9_210.jpg",
+    "detection_index": 1,
+    "box": [
+      1747.965087890625,
+      617.6804809570312,
+      1868.700439453125,
+      715.9337768554688
+    ],
+    "box_confidence": 0.8598204851150513,
+    "keypoints": [
+      [
+        1750.56787109375,
+        622.6019897460938,
+        0.9943787455558777
+      ],
+      [
+        1794.3101806640625,
+        680.4097900390625,
+        0.9928258657455444
+      ],
+      [
+        1829.8245849609375,
+        702.3707275390625,
+        0.9959105253219604
+      ],
+      [
+        1851.9547119140625,
+        665.4557495117188,
+        0.9949131011962891
+      ],
+      [
+        1817.15087890625,
+        645.334716796875,
+        0.9973171353340149
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\9_210__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\9_210__well_01.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1851.9547119140625,
+    "closest_keypoint_y": 665.4557495117188,
+    "closest_keypoint_confidence": 0.9949131011962891,
+    "closest_edge": "right",
+    "min_edge_distance_px": 67.0452880859375,
+    "min_edge_distance_rel": 0.03493761755390177,
+    "min_edge_margin_px": 67.0452880859375,
+    "min_edge_margin_rel": 0.03493761755390177
+  },
+  {
+    "source": "9_210.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\9_210.jpg",
+    "detection_index": 2,
+    "box": [
+      1865.6187744140625,
+      152.42916870117188,
+      1920.0,
+      271.94903564453125
+    ],
+    "box_confidence": 0.7483948469161987,
+    "keypoints": [
+      [
+        1898.288330078125,
+        156.11175537109375,
+        0.9893333315849304
+      ],
+      [
+        1887.270751953125,
+        212.71279907226562,
+        0.9909090399742126
+      ],
+      [
+        1888.25439453125,
+        241.59580993652344,
+        0.9909771680831909
+      ],
+      [
+        1919.7279052734375,
+        238.25567626953125,
+        0.9934583306312561
+      ],
+      [
+        1918.288818359375,
+        210.44125366210938,
+        0.9929903745651245
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\9_210__well_02.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\9_210__well_02.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1919.7279052734375,
+    "closest_keypoint_y": 238.25567626953125,
+    "closest_keypoint_confidence": 0.9934583306312561,
+    "closest_edge": "right",
+    "min_edge_distance_px": 0.7279052734375,
+    "min_edge_distance_rel": 0.000379314889753778,
+    "min_edge_margin_px": -0.7279052734375,
+    "min_edge_margin_rel": -0.000379314889753778
+  },
+  {
+    "source": "9_213.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\9_213.jpg",
+    "detection_index": 1,
+    "box": [
+      1785.0009765625,
+      123.80921173095703,
+      1912.436767578125,
+      202.574462890625
+    ],
+    "box_confidence": 0.8877642750740051,
+    "keypoints": [
+      [
+        1787.49462890625,
+        163.40982055664062,
+        0.9948295950889587
+      ],
+      [
+        1854.2779541015625,
+        185.337890625,
+        0.9935681223869324
+      ],
+      [
+        1896.3798828125,
+        181.91888427734375,
+        0.995736837387085
+      ],
+      [
+        1895.316650390625,
+        137.4969482421875,
+        0.9948328733444214
+      ],
+      [
+        1855.300048828125,
+        143.75909423828125,
+        0.9974963068962097
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\9_213__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\9_213__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 1896.3798828125,
+    "closest_keypoint_y": 181.91888427734375,
+    "closest_keypoint_confidence": 0.995736837387085,
+    "closest_edge": "right",
+    "min_edge_distance_px": 22.6201171875,
+    "min_edge_distance_rel": 0.011787450332204272,
+    "min_edge_margin_px": 22.6201171875,
+    "min_edge_margin_rel": 0.011787450332204272
+  },
+  {
+    "source": "9_213.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\9_213.jpg",
+    "detection_index": 2,
+    "box": [
+      1642.1839599609375,
+      552.9285278320312,
+      1743.4676513671875,
+      670.3551025390625
+    ],
+    "box_confidence": 0.8605124950408936,
+    "keypoints": [
+      [
+        1645.531494140625,
+        556.7862548828125,
+        0.99342280626297
+      ],
+      [
+        1669.663818359375,
+        620.6103515625,
+        0.9929973483085632
+      ],
+      [
+        1694.4833984375,
+        650.306884765625,
+        0.9958427548408508
+      ],
+      [
+        1723.7772216796875,
+        625.0032348632812,
+        0.9952971339225769
+      ],
+      [
+        1699.99072265625,
+        596.6998291015625,
+        0.9968336224555969
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\9_213__well_02.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\9_213__well_02.jpg",
+    "closest_keypoint_index": 3,
+    "closest_keypoint_x": 1723.7772216796875,
+    "closest_keypoint_y": 625.0032348632812,
+    "closest_keypoint_confidence": 0.9952971339225769,
+    "closest_edge": "right",
+    "min_edge_distance_px": 195.2227783203125,
+    "min_edge_distance_rel": 0.10173151553950625,
+    "min_edge_margin_px": 195.2227783203125,
+    "min_edge_margin_rel": 0.10173151553950625
+  },
+  {
+    "source": "9_444.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\9_444.jpg",
+    "detection_index": 1,
+    "box": [
+      1234.89111328125,
+      589.922607421875,
+      1341.4822998046875,
+      664.248779296875
+    ],
+    "box_confidence": 0.8728302121162415,
+    "keypoints": [
+      [
+        1232.768798828125,
+        609.230224609375,
+        0.9951713681221008
+      ],
+      [
+        1289.001708984375,
+        642.3341064453125,
+        0.9938021898269653
+      ],
+      [
+        1324.8922119140625,
+        649.4630126953125,
+        0.9967727065086365
+      ],
+      [
+        1331.5079345703125,
+        610.614013671875,
+        0.9958112239837646
+      ],
+      [
+        1295.395751953125,
+        604.6143188476562,
+        0.9978127479553223
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\9_444__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\9_444__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 1324.8922119140625,
+    "closest_keypoint_y": 649.4630126953125,
+    "closest_keypoint_confidence": 0.9967727065086365,
+    "closest_edge": "bottom",
+    "min_edge_distance_px": 429.5369873046875,
+    "min_edge_distance_rel": 0.39808803271982157,
+    "min_edge_margin_px": 429.5369873046875,
+    "min_edge_margin_rel": 0.39808803271982157
+  },
+  {
+    "source": "9_880.jpg",
+    "frame_path": "E:\\视觉代码\\unnormal_pic\\9_880.jpg",
+    "detection_index": 1,
+    "box": [
+      1354.46044921875,
+      428.2356262207031,
+      1499.47412109375,
+      530.620849609375
+    ],
+    "box_confidence": 0.8578879237174988,
+    "keypoints": [
+      [
+        1359.1585693359375,
+        501.2445373535156,
+        0.9957801103591919
+      ],
+      [
+        1436.47900390625,
+        504.85040283203125,
+        0.9946994781494141
+      ],
+      [
+        1478.5889892578125,
+        492.3139343261719,
+        0.9971981048583984
+      ],
+      [
+        1468.07666015625,
+        448.64398193359375,
+        0.9959509372711182
+      ],
+      [
+        1426.510498046875,
+        460.8292236328125,
+        0.9981210827827454
+      ]
+    ],
+    "crop_status": "ok",
+    "crop_path": "E:\\视觉代码\\well_position_analysis\\crops\\9_880__well_01.png",
+    "review_path": "E:\\视觉代码\\well_position_analysis\\review_panels\\9_880__well_01.jpg",
+    "closest_keypoint_index": 2,
+    "closest_keypoint_x": 1478.5889892578125,
+    "closest_keypoint_y": 492.3139343261719,
+    "closest_keypoint_confidence": 0.9971981048583984,
+    "closest_edge": "right",
+    "min_edge_distance_px": 440.4110107421875,
+    "min_edge_distance_rel": 0.22950026615017588,
+    "min_edge_margin_px": 440.4110107421875,
+    "min_edge_margin_rel": 0.22950026615017588
   }
 ]
